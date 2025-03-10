@@ -1,0 +1,4 @@
+---@param str string
+local function snip(str .. "世界")
+  print(str)
+end
