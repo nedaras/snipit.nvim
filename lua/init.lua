@@ -1,5 +1,7 @@
 local utf8 = require("snipit.utf8")
 
+-- using zig we need to make an interface where we could draw an image
+
 local M = {}
 
 ---@param str string
