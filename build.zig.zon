@@ -1,0 +1,20 @@
+.{
+    .name = .snipit,
+    .version = "0.0.0",
+    .fingerprint = 0xebfea2f2939bf770,
+    .minimum_zig_version = "0.14.0",
+    .dependencies = .{
+        .freetype = .{
+            .url = "git+https://github.com/hexops/freetype#972cd37bccecae2cc9f54cf0b562263a13209d02",
+            .hash = "freetype-0.0.0-AAAAAA5JcwBMujojfNLEq5g_WijZtU56mRLYx8bjjiMU",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        // For example...
+        //"LICENSE",
+        //"README.md",
+    },
+}
