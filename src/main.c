@@ -58,7 +58,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  uint32_t idx = FT_Get_Char_Index(face, 0x1f480);
+  uint32_t idx = FT_Get_Char_Index(face, 0x1F480);
   assert(idx != 0);
 
   printf("idx: %d\n", idx);
@@ -76,7 +76,19 @@ int main(int argc, char *argv[]) {
   }
 
   if (face->glyph->bitmap.pixel_mode == FT_PIXEL_MODE_BGRA) {
-    printf("this char has some color\n");
+    uint8_t* i = face->glyph->bitmap.buffer;
+    int j = 0;
+    for (uint32_t y = 0; y < face->glyph->bitmap.rows; y++) {
+      for (uint32_t x = 0; x < face->glyph->bitmap.width; x++) {
+        uint8_t b = *i++;
+        uint8_t g = *i++;
+        uint8_t r = *i++;
+        uint8_t a = *i++;
+
+        printf("%s ", a ? "#" : " ");
+      }
+      printf("\n");
+    }
   } else {
     uint8_t* h = face->glyph->bitmap.buffer;
     for (uint32_t y = 0; y < face->glyph->bitmap.rows; y++) {
