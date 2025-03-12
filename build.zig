@@ -7,6 +7,7 @@ pub fn build(b: *std.Build) void {
     const freetype = b.dependency("freetype", .{
         .target = target,
         .optimize = optimize,
+        .@"enable-libpng" = true,
     });
 
     const exe = b.addExecutable(.{
@@ -17,7 +18,6 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibC();
     exe.linkLibrary(freetype.artifact("freetype"));
-
     exe.addCSourceFile(.{ .file = b.path("src/main.c") });
 
     b.installArtifact(exe);
