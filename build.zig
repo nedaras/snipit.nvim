@@ -4,6 +4,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const libpng = b.dependency("libpng", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const freetype = b.dependency("freetype", .{
         .target = target,
         .optimize = optimize,
@@ -17,7 +22,11 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.linkLibC();
+
+    exe.linkLibrary(libpng.artifact("png"));
+
     exe.linkLibrary(freetype.artifact("freetype"));
+    exe.addIncludePath(b.path("src"));
     exe.addCSourceFile(.{ .file = b.path("src/main.c") });
 
     b.installArtifact(exe);

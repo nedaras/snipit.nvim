@@ -8,6 +8,10 @@
             .url = "git+https://github.com/allyourcodebase/freetype#d0a748192f26bd20f9f339d0d7156b84e90eb4dc",
             .hash = "freetype-2.13.2-AAAAAByJAAD7KQxAcdDYidJ3YigvRztfnLmn4rQpvLms",
         },
+        .libpng = .{
+            .url = "git+https://github.com/allyourcodebase/libpng.git#a4639b4e1af088bfac51378cfcee2bb1e91eeabc",
+            .hash = "12202b37d7e14557b8c75e72dc82934e1a3b517020fd2e44a7931ac0de6289d58d04",
+        },
     },
     .paths = .{
         "build.zig",
