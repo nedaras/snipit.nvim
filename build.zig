@@ -24,10 +24,9 @@ pub fn build(b: *std.Build) void {
     // todo: add "-DFT_CONFIG_OPTION_ERROR_STRINGS=1", inside freetype
 
     exe.linkLibC();
-
     exe.linkLibrary(libpng.artifact("png"));
-
     exe.linkLibrary(freetype.artifact("freetype"));
+
     exe.addIncludePath(b.path("src"));
     exe.addCSourceFile(.{ .file = b.path("src/main.c") });
 
