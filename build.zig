@@ -21,6 +21,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // todo: add "-DFT_CONFIG_OPTION_ERROR_STRINGS=1", inside freetype
+
     exe.linkLibC();
 
     exe.linkLibrary(libpng.artifact("png"));
