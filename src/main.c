@@ -1,27 +1,42 @@
 #include <assert.h>
 #include <errno.h>
-#include <stdint.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <png.h>
 #include <ft2build.h>
+#include <stdio.h>
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
 
-#define SN_FONTSIZE 16
+#define SN_FONTSIZE 22
 #define SN_FONTS    3
-#define SN_WIDTH    95
-#define SN_HEIGHT   32
+#define SN_WIDTH    300
+#define SN_HEIGHT   50
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
+#define div_ceil(a, b) (((a) + (b) - 1) / (b))
+
 typedef int sn_error;
+
+struct sn_color_s {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+} typedef sn_color_t;
+
 struct sn_ctx_s {
-  uint8_t bitmap[SN_WIDTH * SN_HEIGHT * 3];
+  // render our image line by line we would just need the width upfront
+  // how to get the width? we can add sn_get_width and use max if it
+  uint8_t bitmap[SN_WIDTH * SN_HEIGHT * 3]; 
   FT_Library library;
 
   FT_Face fonts[SN_FONTS];
   uint8_t fonts_len;
+
+  sn_color_t pencil_color;
+  sn_color_t fill_color;
 
 } typedef sn_ctx_t;
 
@@ -41,6 +56,9 @@ sn_error sn_init(sn_ctx* ctx) {
   }
 
   (*ctx)->fonts_len = 0;
+  (*ctx)->pencil_color = (sn_color_t){ 255, 255, 255 };
+  (*ctx)->fill_color = (sn_color_t){ 0, 0, 0 };
+
   memset((*ctx)->bitmap, 0, SN_WIDTH * SN_HEIGHT * 3);
 
   return 0;
@@ -86,7 +104,7 @@ sn_error sn_add_font(sn_ctx ctx, const char* sub_path) {
     goto err;
   }
 
-  if (is_colored(*pface)) {
+  if (FT_HAS_COLOR(*pface)) {
     assert((*pface)->num_fixed_sizes > 0);
     err = FT_Select_Size(*pface, 0);
     if (err != FT_Err_Ok) goto err;
@@ -106,7 +124,7 @@ err:
   return err;
 }
 
-sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_t codepoint, uint32_t next_codepoint, uint32_t* kerning) {
+sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_t codepoint, uint32_t* advance) {
   assert(SN_WIDTH > off_x);
   assert(SN_HEIGHT > off_y);
 
@@ -133,6 +151,9 @@ sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_
   }
 
   if (glyph->bitmap.pixel_mode == FT_PIXEL_MODE_BGRA) {
+    // before rendering these colored emojis we will need to scale them down
+    assert(false);
+
     uint8_t* src = glyph->bitmap.buffer;
 
     // we would need to scale this down
@@ -166,51 +187,73 @@ sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_
     for (uint32_t y = 0; y < min(glyph->bitmap.rows, SN_HEIGHT - off_y); y++) {
       for (uint32_t x = 0; x < min(glyph->bitmap.width, SN_WIDTH - off_x); x++) {
         uint8_t h = glyph->bitmap.buffer[y * glyph->bitmap.width + x];
+        uint8_t inv_h = 255 - h;
 
         size_t bitmap_len = SN_WIDTH * SN_HEIGHT;
         size_t bitmap_idx = (y + off_y) * SN_WIDTH + x + off_x;
 
         assert(bitmap_len > bitmap_idx);
 
-        ctx->bitmap[bitmap_idx * 3 + 0] = h;
-        ctx->bitmap[bitmap_idx * 3 + 1] = h;
-        ctx->bitmap[bitmap_idx * 3 + 2] = h;
+        uint8_t* bg_r = &ctx->bitmap[bitmap_idx * 3 + 0];
+        uint8_t* bg_g = &ctx->bitmap[bitmap_idx * 3 + 1];
+        uint8_t* bg_b = &ctx->bitmap[bitmap_idx * 3 + 2];
+
+        *bg_r = (inv_h * (*bg_r) + h * ctx->pencil_color.r) / 255;
+        *bg_g = (inv_h * (*bg_g) + h * ctx->pencil_color.g) / 255;
+        *bg_b = (inv_h * (*bg_b) + h * ctx->pencil_color.b) / 255;
       }
     }
   }
 
-  if (FT_HAS_KERNING(*pface) && next_codepoint != 0 && kerning != NULL) {
-    uint32_t next_idx = FT_Get_Char_Index(*pface, next_codepoint); // file - 0x1F525
-    assert(next_idx != 0); // return err
+  //if (FT_HAS_KERNING(*pface) && next_codepoint != 0 && kerning != NULL) {
+    //uint32_t next_idx = FT_Get_Char_Index(*pface, next_codepoint); // file - 0x1F525
+    //assert(next_idx != 0); // return err
 
-    FT_Vector vec;
-    assert(FT_Get_Kerning(*pface, idx, next_idx, FT_KERNING_DEFAULT, &vec) == FT_Err_Ok); // todo: handle
+    //FT_Vector vec;
+    //assert(FT_Get_Kerning(*pface, idx, next_idx, FT_KERNING_DEFAULT, &vec) == FT_Err_Ok); // todo: handle
 
-    printf("x: %ld, y: %ld\n", vec.x, vec.y); // why not work?
+    //printf("x: %ld, y: %ld\n", vec.x, vec.y); // why not work?
     // https://freetype.org/freetype2/docs/tutorial/step2.html
-    *kerning = (glyph->advance.x * SN_FONTSIZE) / font_size;
-  } else {
-    *kerning = (glyph->advance.x * SN_FONTSIZE) / font_size;
+    //*kerning = (glyph->advance.x * SN_FONTSIZE) / font_size;
+  //} else {
+  if (advance != NULL) {
+    *advance = div_ceil(glyph->advance.x * SN_FONTSIZE, font_size);
   }
+  //}
 
   return 0;
 }
 
 sn_error sn_draw_text(sn_ctx ctx, const char* text, size_t text_len) {
+  // todo: dont pass color here add sn_set_color()
   uint32_t x = 0;
   for (size_t i = 0; i < text_len; i++) {
-    uint32_t kern;
-    sn_error err = sn_render_codepoint(ctx, x, 0, text[i], text[i + 1], &kern); // FIX: bad things will happen if text is not nullterminated
+    uint32_t advance; // rename to advance
+    sn_error err = sn_render_codepoint(ctx, x, 0, text[i], &advance); // FIX: bad things will happen if text is not nullterminated
     if (err != 0) {
       return err;
     }
-
-    x += kern + 1; // should prob off by space if its mosocope
+    
+    x += advance;
   }
 
   return 0;
 }
 
+void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
+  ctx->pencil_color = (sn_color_t){r, g, b};
+}
+
+void sn_fill(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
+  uint8_t* src = ctx->bitmap;
+  for (uint32_t i = 0; i < SN_WIDTH * SN_HEIGHT; i++) {
+    *src++ = r;
+    *src++ = g;
+    *src++ = b;
+  }
+
+  ctx->fill_color = (sn_color_t){r, g, b};
+}
 
 void sn_render(sn_ctx ctx) {
     uint8_t* i = ctx->bitmap;
@@ -241,14 +284,58 @@ int main(int argc, char *argv[]) {
     goto err;
   }
 
+  sn_fill(ctx, 25, 23, 36);
+  sn_set_color(ctx, 0, 255, 255);
+
+  // todo: make sn_draw_advance that will have like { text, color } arr
+
   err = sn_draw_text(ctx, argv[2], strlen(argv[2]));
   if (err != 0) {
     goto err;
   }
 
-  sn_render(ctx);
+  FILE* file = fopen("out.png", "wb");
+  if (file == NULL) {
+    printf("snipit.nvim: out.png: cannot open: %s\n", strerror(errno));
+    assert(false);
+  }
+
+  // below err handling is not a thing no more
+  // but when using png_set_write_fn only errors i think that should happen is OOM
+
+  png_structp png_writer = NULL;
+  png_infop png_info = NULL;
+
+
+  png_writer = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+  if (png_writer == NULL) {
+    assert(false);
+  }
+
+  png_info = png_create_info_struct(png_writer);
+  if (png_info == NULL) {
+    assert(false);
+  }
+
+  if (setjmp(png_jmpbuf(png_writer))) {
+    assert(false);
+  }
+
+  png_init_io(png_writer, file);
+  png_set_IHDR(png_writer, png_info, SN_WIDTH, SN_HEIGHT, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+
+  png_write_info(png_writer, png_info);
+
+  for (uint32_t i = 0; i < SN_HEIGHT; i++) {
+    png_const_bytep row = ctx->bitmap + (i * SN_WIDTH * 3);
+    png_write_row(png_writer, row);
+  }
+  
+  png_write_end(png_writer, NULL);
+  png_destroy_write_struct(&png_writer, &png_info);
 
   sn_done(ctx);
+
   return 0;
 
 err:
