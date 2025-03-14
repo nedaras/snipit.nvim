@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
         .@"enable-libpng" = true,
     });
 
-    const exe = b.addExecutable(.{
+    const exe = b.addSharedLibrary(.{
         .name = "snipit",
         .target = target,
         .optimize = optimize,
@@ -27,7 +27,6 @@ pub fn build(b: *std.Build) void {
     exe.linkLibrary(libpng.artifact("png"));
     exe.linkLibrary(freetype.artifact("freetype"));
 
-    exe.addIncludePath(b.path("src"));
     exe.addCSourceFile(.{ .file = b.path("src/main.c") });
 
     b.installArtifact(exe);

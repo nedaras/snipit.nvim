@@ -1,166 +1,61 @@
-local utf8 = require("snipit.utf8")
-
--- using zig we need to make an interface where we could draw an image
+local ffi = require("ffi")
 
 local M = {}
 
----@param str string
----@return string
-local function xml(str)
-  local result = ""
-  for _, rune in utf8.codes(str) do
-    local char = utf8.char(utf8.codepoint(rune))
+local sn = ffi.load("/home/nedas/source/snipit/zig-out/lib/libsnipit.so")
 
-    if char == "<" then
-      result = result .. "&lt;"
-    elseif char == ">" then
-      result = result .. "&gt;"
-    elseif char == "&" then
-      result = result .. "&amp;"
-    --elseif char == "\"" then
-      --result = result .. "&quot;"
-    --elseif char == "'" then
-      --result = result .. "&apos;"
-    else
-      result = result .. char
-    end
-  end
+ffi.cdef[[
+  typedef void* sn_ctx;
 
-  return result
-end
+  sn_ctx sn_init(uint32_t width, uint32_t height);
 
----@param lines string[]
----@return string
-local function snip(lines)
-  assert(#lines ~= 0)
+  void sn_done(sn_ctx ctx);
 
-  local max_w = 1000;
+  int sn_add_font(sn_ctx ctx, const char* sub_path);
 
-  local w = 10
-  local h = 20
+  int sn_draw_text(sn_ctx ctx, const char* text, size_t text_len);
 
-  local out = ""
-  for i, line in ipairs(lines) do
-    if #line == 0 then
-      goto continue
-    end
+  void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b);
 
-    local y = i * h - 5
+  void sn_fill(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b);
 
-    local prev_rune = nil
-    local spaces = 0
+  int sn_output(sn_ctx ctx, uint8_t** dist, size_t* dist_len);
 
-    local prev_idx = nil
-    for indx, codes in utf8.codes(line) do
-      local rune = utf8.char(utf8.codepoint(codes))
-      assert(rune ~= '\n')
+  void sn_free_output(uint8_t** src);
 
-      if rune == ' ' then
-        spaces = spaces + 1
-      else
-        if prev_rune ~= nil and prev_rune == ' ' and spaces > 1 then
-          if prev_idx then
-            local x = prev_idx * w
-            local sub_line = string.sub(line, prev_idx, indx - spaces - 1)
+  const char* sn_error_name(int err);
+]]
 
-            out = out .. "<text x=\"" .. x .. "\" y=\"" .. y .. "\" class=\"monospace\">" .. xml(sub_line) .. "</text>"
-          end
-          prev_idx = indx
-        end
-        spaces = 0
-      end
-      prev_rune = rune
-    end
+M.test = function ()
+  local err
+  local ctx = sn.sn_init(256, 256)
 
-    if prev_idx then
-      local x = prev_idx * w
-      local sub_line = string.sub(line, prev_idx)
-      assert(#sub_line ~= 0)
+  assert(ctx ~= nil, "init")
 
-      out = out .. "<text x=\"" .. x .. "\" y=\"" .. y .. "\" class=\"monospace\">" .. xml(sub_line) .. "</text>"
-    else
-      out = out .. "<text x=\"0\" y=\"" .. y .. "\" class=\"monospace\">" .. xml(line) .. "</text>"
-    end
+  err = sn.sn_add_font(ctx, "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf")
+  assert(err == 0, "add_font: " .. ffi.string(sn.sn_error_name(err))) -- if we will just assert freeing is still needed
 
+  sn.sn_fill(ctx, 25, 23, 36)
+  sn.sn_set_color(ctx, 0, 255, 255)
 
-    ::continue::
-  end
+  local text = "snipit.nvim";
+  assert(sn.sn_draw_text(ctx, text, #text) == 0, "draw_text")
 
-  local head = "<svg width=\"" .. max_w .. "\" height=\"" .. #lines * h .. "\" xmlns=\"http://www.w3.org/2000/svg\"><defs><style>.monospace{font-family:'Courier New',monospace;}></style></defs>"
-  return(head .. out .. "</svg>")
-end
+  local out = ffi.new("uint8_t*[1]")
+  local out_len = ffi.new("size_t[1]")
 
-local function get_visual_selection()
-  local start_line = vim.fn.line("'<")
-  local end_line = vim.fn.line("'>")
+  assert(sn.sn_output(ctx, out, out_len), "output")
 
-  print(string.format("%d lines sniped", end_line - start_line + 1))
+  local file = io.open("out.png", "wb")
+  assert(file ~= nil)
 
-  return vim.fn.getline(start_line, end_line)
-end
+  file:write(ffi.string(out[0], out_len[0]))
+  file:close()
 
-M.snip = function ()
-  local mode = vim.fn.mode()
-  assert(mode == 'v' or mode == 'V')
+  print("len", out_len[0])
 
-  vim.schedule(function ()
-    vim.fn.setreg('+', snip(get_visual_selection()))
-  end)
-
-  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<Esc>', true, false, true), 'v', true)
-end
-
-M.test = function (start_row, end_row)
-  local buf = vim.api.nvim_get_current_buf()
-  local highlighter = vim.treesitter.highlighter
-  if highlighter.active[buf] then
-    local buf_highlighter = highlighter.active[buf]
-
-    buf_highlighter.tree:for_each_tree(function (tstree, tree)
-      if not tstree then
-        return
-      end
-
-      local root = tstree:root()
-      -- local root_start_row, _, root_end_row, _ = root:range()
-
-      local query = buf_highlighter:get_query(tree:lang())
-
-      if not query:query() then
-        return
-      end
-
-      local iter = query:query():iter_captures(root, buf_highlighter.bufnr, start_row - 1, end_row)
-
-      local out = ""
-      local max_x = 0
-      local max_y = 0
-      -- todo: handle duplicates
-      for capture, node in iter do
-        local hl = query.hl_cache[capture]
-        if hl then
-          local hl_group = query._query.captures[capture]
-          local hl_info = vim.api.nvim_get_hl_by_name("@" .. hl_group, true)
-          if hl_info and hl_info.foreground then
-            local str = vim.treesitter.get_node_text(node, buf)
-            local y, x, _, _ = node:range()
-            local color = string.format("#%06x", hl_info.foreground)
-
-            max_x = math.max(max_x, (x + #str) * 10)
-            max_y = math.max(max_y, y * 20)
-            out = out .. "<text x=\"" .. x * 10 .. "\" y=\"" .. y * 20 + 15 .. "\" fill=\"" .. color.. "\" class=\"monospace\">" .. xml(str) .. "</text>"
-          end
-          -- print(string.format("%s: `%s` [%d:%d - %d:%d] ", hl_group, name, sr, sc, er, ec))
-          -- print(color)
-        end
-      end
-
-
-      local head = "<svg width=\"" .. max_x .. "\" height=\"" .. max_y + 20 .. "\" xmlns=\"http://www.w3.org/2000/svg\"><defs><style>.monospace{font-family:'Courier New',monospace;}></style></defs>"
-      local rect = "<rect width=\"100%\" height=\"100%\" fill=\"#191724\"></rect>"
-      vim.fn.setreg('+', head .. rect .. out .. "</svg>")
-    end, true)
-  end
+  sn.sn_free_output(out)
+  sn.sn_done(ctx)
 end
 
 return M

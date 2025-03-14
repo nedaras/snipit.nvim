@@ -1,12 +1,17 @@
 #include <assert.h>
 #include <errno.h>
+#include <linux/limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <png.h>
 #include <ft2build.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <limits.h>
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
+
+#define SN_API
 
 #define SN_LINE_HEIGHT 22
 #define SN_FONTS    4 // need 4 fonts (regular, italic, bold, emoji)
@@ -45,7 +50,7 @@ struct sn_ctx_s {
 typedef sn_ctx_t* sn_ctx;
 
 // todo: enable dymanic size after we implement own arr_list thingy
-sn_error sn_init(sn_ctx* ctx, uint32_t width, uint32_t height) {
+SN_API sn_ctx sn_init(uint32_t width, uint32_t height) {
   FT_Error err;
   sn_ctx out = malloc(sizeof(sn_ctx_t));
 
@@ -70,25 +75,28 @@ sn_error sn_init(sn_ctx* ctx, uint32_t width, uint32_t height) {
 
   memset(out->bitmap.buffer, 0, width);
 
+  for (int i = 0; i < SN_FONTS; i++) {
+    out->fonts[i] = NULL;
+  }
+
   out->fonts_len = 0;
   out->pencil_color = (sn_color_t){ 255, 255, 255 };
   out->fill_color = (sn_color_t){ 0, 0, 0 };
 
-  *ctx = out;
-  return 0;
+  return out;
 
 err:
-  if (out == NULL) return err;
+  if (out == NULL) return NULL;
 
   if (out->bitmap.buffer != NULL) {
     free(out->bitmap.buffer);
   }
    
   free(out);
-  return err;
+  return NULL;
 }
 
-void sn_done(sn_ctx ctx) {
+SN_API void sn_done(sn_ctx ctx) {
   assert(ctx != NULL);
 
   assert(ctx->bitmap.buffer != NULL);
@@ -102,6 +110,10 @@ void sn_done(sn_ctx ctx) {
   assert(FT_Done_FreeType(ctx->library) == FT_Err_Ok);
 
   free(ctx);
+}
+
+SN_API const char* sn_error_name(sn_error err) {
+  return FT_Error_String(err);
 }
 
 bool is_colored(FT_Face face) {
@@ -120,7 +132,7 @@ bool is_colored(FT_Face face) {
 
 // todo: rename to set_font and have SN_FONT_TYPE_
 // and add `sub_path_len` param
-sn_error sn_add_font(sn_ctx ctx, const char* sub_path) {
+SN_API sn_error sn_add_font(sn_ctx ctx, const char* sub_path) {
   assert(ctx != NULL);
   assert(ctx->fonts_len != SN_FONTS); // ret err
   
@@ -236,7 +248,7 @@ sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_
   return 0;
 }
 
-sn_error sn_draw_text(sn_ctx ctx, const char* text, size_t text_len) {
+SN_API sn_error sn_draw_text(sn_ctx ctx, const char* text, size_t text_len) {
   uint32_t x = 0;
   for (size_t i = 0; i < text_len; i++) {
     uint32_t advance; 
@@ -251,11 +263,11 @@ sn_error sn_draw_text(sn_ctx ctx, const char* text, size_t text_len) {
   return 0;
 }
 
-void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
+SN_API void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
   ctx->pencil_color = (sn_color_t){r, g, b};
 }
 
-void sn_fill(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
+SN_API void sn_fill(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
   uint8_t* src = ctx->bitmap.buffer;
   for (uint32_t i = 0; i <  ctx->bitmap.width * ctx->bitmap.height; i++) {
     *src++ = r;
@@ -312,7 +324,7 @@ void sn_output_writer_write(png_structp ptr, uint8_t* buf, size_t buf_len) {
   state->out_len += buf_len;
 }
 
-sn_error sn_output(sn_ctx ctx, uint8_t** dist, size_t* dist_len) {
+SN_API sn_error sn_output(sn_ctx ctx, uint8_t** dist, size_t* dist_len) {
   assert(dist != NULL);
   assert(dist_len != NULL);
 
@@ -350,7 +362,7 @@ sn_error sn_output(sn_ctx ctx, uint8_t** dist, size_t* dist_len) {
 
   for (uint32_t i = 0; i < ctx->bitmap.height; i++) {
     png_const_bytep row = ctx->bitmap.buffer + (i * ctx->bitmap.width * 3);
-    png_write_row(writer, row);
+    png_write_row(writer, row); // todo: try to oneshot it with that write_image mb result will be smaller
     err = write_state.err;
     if (err != 0) {
       goto err;
@@ -383,7 +395,7 @@ err:
   return err;
 }
 
-void sn_free_output(uint8_t** src) {
+SN_API void sn_free_output(uint8_t** src) {
   assert(src != NULL);
   assert(*src != NULL);
 
@@ -394,11 +406,12 @@ void sn_free_output(uint8_t** src) {
 int main(int argc, char *argv[]) {
   if (argc < 3) return 1;
 
-  sn_ctx ctx = NULL;
   sn_error err;
 
-  err = sn_init(&ctx, 256, 256);
-  if (err != 0) {
+  sn_ctx ctx = sn_init(256, 256);
+  if (ctx == NULL) {
+    err = FT_Err_Out_Of_Memory; // todo: handle these stuff
+                                // add like sn_get_err thing idk smth like zstd library
     goto err;
   }
 
