@@ -1,19 +1,15 @@
 #include <assert.h>
-#include <errno.h>
-#include <linux/limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <png.h>
 #include <ft2build.h>
-#include <stdio.h>
-#include <unistd.h>
 #include <limits.h>
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
 
 #define SN_API
 
-#define SN_LINE_HEIGHT 22
+#define SN_LINE_HEIGHT 16
 #define SN_FONTS    4 // need 4 fonts (regular, italic, bold, emoji)
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
@@ -248,16 +244,17 @@ sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_
   return 0;
 }
 
-SN_API sn_error sn_draw_text(sn_ctx ctx, const char* text, size_t text_len) {
+SN_API sn_error sn_draw_text(sn_ctx ctx, uint32_t row, uint32_t col, const char* text) {
   uint32_t x = 0;
-  for (size_t i = 0; i < text_len; i++) {
+  while (*text != '\0') {
     uint32_t advance; 
-    sn_error err = sn_render_codepoint(ctx, x, 0, text[i], &advance);
+    // todo: get space width for spacing SN_LINE_HEIGHT >> 1 is not correct
+    sn_error err = sn_render_codepoint(ctx, col * (SN_LINE_HEIGHT >> 1) + x, row * SN_LINE_HEIGHT, *text, &advance);
     if (err != 0) {
       return err;
     }
-    
     x += advance;
+    text++;
   }
 
   return 0;
@@ -401,71 +398,4 @@ SN_API void sn_free_output(uint8_t** src) {
 
   free(*src);
   *src = NULL;
-}
-
-int main(int argc, char *argv[]) {
-  if (argc < 3) return 1;
-
-  sn_error err;
-
-  sn_ctx ctx = sn_init(256, 256);
-  if (ctx == NULL) {
-    err = FT_Err_Out_Of_Memory; // todo: handle these stuff
-                                // add like sn_get_err thing idk smth like zstd library
-    goto err;
-  }
-
-  err = sn_add_font(ctx, argv[1]);
-  if (err != 0) {
-    goto err;
-  }
-
-  sn_fill(ctx, 25, 23, 36);
-  sn_set_color(ctx, 0, 255, 255);
-
-  // todo: make sn_draw_advance that will have like { text, color } arr
-
-  err = sn_draw_text(ctx, argv[2], strlen(argv[2]));
-  if (err != 0) {
-    goto err;
-  }
-
-  FILE* file = fopen("out.png", "wb");
-  if (file == NULL) {
-    printf("snipit.nvim: out.png: cannot open: %s\n", strerror(errno));
-    assert(false);
-  }
-
-  uint8_t* out;
-  size_t out_len;
-
-  err = sn_output(ctx, &out, &out_len);
-  if (err != 0) {
-    goto err;
-  }
-
-  size_t idx = 0;
-  while (idx != out_len) {
-    size_t amt = fwrite(out + idx, 8, out_len - idx, file);
-    if (amt == 0) break;
-    idx += amt;
-  }
-  assert(idx == out_len);
-
-  printf("out.png\n");
-
-  fclose(file);
-
-  sn_free_output(&out);
-  sn_done(ctx);
-
-  return 0;
-
-err:
-  if (file != NULL) fclose(file);
-  if (ctx != NULL) sn_done(ctx);
-
-  printf("%s\n", FT_Error_String(err));
-
-  return 1;
 }
