@@ -10,7 +10,7 @@
 
 #define SN_API
 
-#define SN_LINE_HEIGHT  37 // how to get this?
+#define SN_LINE_HEIGHT  36 // im an idiot everything is mesured here 64th of an pixel
 #define SN_FONT_SIZE    32
 #define SN_FONTS        4 // need 4 fonts (regular, italic, bold, emoji)
 
@@ -62,7 +62,7 @@ SN_API sn_ctx sn_init(uint32_t rows, uint32_t cols) {
     goto err;
   }
 
-  out->bitmap.width = cols * (SN_FONT_SIZE >> 1);
+  out->bitmap.width = cols * (SN_LINE_HEIGHT >> 1);
   out->bitmap.height = rows * SN_LINE_HEIGHT;
   out->bitmap.buffer = malloc(out->bitmap.width * out->bitmap.height * 3);
 
@@ -182,7 +182,6 @@ sn_error sn_render_codepoint(sn_ctx ctx, int32_t off_x, int32_t off_y, uint32_t 
   }
 
   FT_GlyphSlot glyph = (*pface)->glyph;
-  uint32_t font_size = (*pface)->size->metrics.height;
 
   err = FT_Render_Glyph(glyph, FT_RENDER_MODE_NORMAL);
   if (err != FT_Err_Ok) {
@@ -206,10 +205,12 @@ sn_error sn_render_codepoint(sn_ctx ctx, int32_t off_x, int32_t off_y, uint32_t 
     }
   } else {
     // todo fix that these values can be signed
-    int32_t bearing_x = div_ceil(glyph->metrics.horiBearingX * SN_FONT_SIZE, font_size);
-    int32_t bearing_y = div_ceil(glyph->metrics.horiBearingY * SN_FONT_SIZE, font_size);
+    int32_t bearing_x = glyph->metrics.horiBearingX >> 6;
+    int32_t bearing_y = glyph->metrics.horiBearingY >> 6;
 
     assert(bearing_y <= SN_FONT_SIZE); // it it true?
+
+    // we need to fix these negative bearings
 
     off_y += SN_FONT_SIZE - bearing_y;
     off_x += bearing_x;
@@ -236,7 +237,7 @@ sn_error sn_render_codepoint(sn_ctx ctx, int32_t off_x, int32_t off_y, uint32_t 
   }
   // todo: add kerning if i rly want to
   if (advance != NULL) {
-    *advance = div_ceil(glyph->advance.x * SN_FONT_SIZE, font_size);
+    *advance = glyph->advance.x >> 6;
   }
 
   return 0;
@@ -246,7 +247,7 @@ SN_API sn_error sn_draw_text(sn_ctx ctx, uint32_t row, uint32_t col, const char*
   uint32_t x = 0;
   while (*text != '\0') {
     uint32_t advance; 
-    sn_error err = sn_render_codepoint(ctx, col * (SN_FONT_SIZE >> 1) + x, row * SN_LINE_HEIGHT, *text, &advance);
+    sn_error err = sn_render_codepoint(ctx, col * (SN_LINE_HEIGHT >> 1) + x, row * SN_LINE_HEIGHT, *text, &advance);
     if (err != 0) {
       return err;
     }
@@ -402,7 +403,7 @@ int main(int argc, char *argv[]) {
 
   sn_error err;
 
-  sn_ctx ctx = sn_init(2, 12);
+  sn_ctx ctx = sn_init(2, 50);
   if (ctx == NULL) {
     err = FT_Err_Out_Of_Memory; // todo: handle these stuff
                                 // add like sn_get_err thing idk smth like zstd library
@@ -424,7 +425,7 @@ int main(int argc, char *argv[]) {
     goto err;
   }
 
-  err = sn_draw_text(ctx, 1, 0, argv[2]);
+  err = sn_draw_text(ctx, 1, 2, argv[2]);
   if (err != 0) {
     goto err;
   }

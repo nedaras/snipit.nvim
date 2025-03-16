@@ -31,57 +31,23 @@ ffi.cdef[[
 ]]
 
 M.options = {
-  root = debug.getinfo(1, "S").source:sub(2) --:match("(.*[/\\])")
+  root = debug.getinfo(1, "S").source:sub(2), --:match("(.*[/\\])")
+  save_file = "out.png",
+  -- font_size
+  -- fonts:
+    -- regular
+    -- italic
+    -- bold
 }
 
-M.test = function ()
-
-  local err
-  local ctx = sn.sn_init(1024, 1024)
-
-  assert(ctx ~= nil, "init")
-
-  err = sn.sn_add_font(ctx, "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf")
-  assert(err == 0, "add_font: " .. ffi.string(sn.sn_error_name(err))) -- if we will just assert freeing is still needed
-
-  sn.sn_fill(ctx, 25, 23, 36)
-  sn.sn_set_color(ctx, 0, 255, 255)
-
-  local text = "snipit.nvim";
-  assert(sn.sn_draw_text(ctx, text, #text) == 0, "draw_text")
-
-  local out = ffi.new("uint8_t*[1]")
-  local out_len = ffi.new("size_t[1]")
-
-  assert(sn.sn_output(ctx, out, out_len), "output")
-
-  local file = io.open("out.png", "wb")
-  assert(file ~= nil)
-
-  file:write(ffi.string(out[0], out_len[0]))
-  file:close()
-
-  print("len", out_len[0])
-
-  sn.sn_free_output(out)
-  sn.sn_done(ctx)
-
-  -- sn.sn_get_cwd(buf, PATH_MAX)
-
-  -- print(ffi.string(buf));
-end
-
-local function get_ts_syntax(line1, line2)
-  local syntax = {}
-
+local function get_ts_syntax(syntax, line1, line2)
   local buf = vim.api.nvim_get_current_buf()
   local highlighter = vim.treesitter.highlighter
-
-  if not highlighter.active[buf] then
-    return syntax
-  end
-
   local buf_highlighter = highlighter.active[buf]
+
+  if not buf_highlighter then
+    return
+  end
 
   buf_highlighter.tree:for_each_tree(function (tstree, tree)
     if not tstree then
@@ -89,6 +55,10 @@ local function get_ts_syntax(line1, line2)
     end
 
     local root = tstree:root()
+    local root_start_row, _, root_end_row, _ = root:range()
+
+    -- print(root_start_row, root_end_row)
+
     local query = buf_highlighter:get_query(tree:lang())
 
     if not query:query() then
@@ -98,14 +68,28 @@ local function get_ts_syntax(line1, line2)
     local iter = query:query():iter_captures(root, buf_highlighter.bufnr, line1 - 1, line2)
 
     for capture, node in iter do
-      local group = query._query.captures[capture]
-      local row, col, row_end, col_end = node:range()
+      local hl = query.hl_cache[capture]
+      if not hl then
+        goto continue
+      end
 
-      if row ~= row_end then -- fix this stuff handle new lines \n
+      local group = query._query.captures[capture]
+      if not group then
+        goto continue
+      end
+
+      local row, col, row_end, _ = node:range()
+
+      -- seems that if we get multi line token we cannot extarct futher tokens
+      -- and we need to handle these tokens, but it is hard cuz if we thse multi line stokens can have other tokens inside
+      if row ~= row_end then
+        if row_end + 2 > line2 then
+          return
+        end
+        get_ts_syntax(syntax, row_end + 2, line2)
         return
       end
 
-      -- todo: need to rethink this stuff or mb no u shouldnt be snapping 65k chars
       assert(row <= 65535)
       assert(col <= 65535)
 
@@ -120,15 +104,27 @@ local function get_ts_syntax(line1, line2)
       end
 
       table.insert(syntax[key].groups, group)
+        ::continue::
     end
   end, true)
+end
 
-  return syntax
+local function is_alpha(c)
+  return (c >= 'a' and c <= 'z') or (c > 'A' and c <= 'Z')
+end
+
+local function is_absolute(path)
+  if ffi.os == "Windows" then
+    return path:sub(2, 2) == ':' and (is_alpha(path:sub(1, 1)))
+  end
+
+  return path:sub(1, 1) == '/'
 end
 
 M.setup = function ()
   vim.api.nvim_create_user_command("Snipit", function (opts)
-    local syntax = get_ts_syntax(opts.line1, opts.line2)
+    local syntax = {}
+    get_ts_syntax(syntax, opts.line1, opts.line2)
 
     if next(syntax) == nil then
       return
@@ -146,6 +142,7 @@ M.setup = function ()
 
     assert(ctx ~= nil, "init")
 
+    -- we need to add like clear function with new rows and cols cuz adding font every time we snap is just stupid
     err = sn.sn_add_font(ctx, "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf")
     assert(err == 0, "add_font: " .. ffi.string(sn.sn_error_name(err))) -- if we will just assert freeing is still needed
 
@@ -156,6 +153,8 @@ M.setup = function ()
       local row = bit.rshift(key, 16)
       local col = bit.band(key, 0xFFFF)
       local hl_info = vim.api.nvim_get_hl_by_name("@" .. val.groups[#val.groups], true)
+
+      -- print(row, col, val.token)
 
       if hl_info.foreground then
         local r = bit.band(bit.rshift(hl_info.foreground, 16), 0xFF)
@@ -175,16 +174,30 @@ M.setup = function ()
 
     assert(sn.sn_output(ctx, out, out_len), "output")
 
-    local file = io.open("out.png", "wb")
-    assert(file ~= nil)
+    local image = ffi.string(out[0], out_len[0])
 
-    file:write(ffi.string(out[0], out_len[0]))
-    file:close()
+    local save_path = M.options.save_file
+    if save_path then
+      if not is_absolute(save_path) then
+        save_path = vim.fn.getcwd() .. "/" .. save_path
+      end
 
-    print("len", out_len[0])
+      local file = io.open(save_path, "wb")
+      assert(file ~= nil)
 
-    sn.sn_free_output(out)
-    sn.sn_done(ctx)
+      file:write(image)
+      file:close()
+
+      print("Saved at " .. save_path)
+
+      sn.sn_free_output(out)
+      sn.sn_done(ctx)
+
+    else
+      -- vim.fn.setreg('+', image)
+      print("Copied to clipboard")
+    end
+
 
   end, { range = "%", nargs = "?" })
 end
