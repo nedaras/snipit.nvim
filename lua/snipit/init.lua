@@ -3,6 +3,8 @@ local bit = require("bit")
 
 local M = {}
 
+print("snipit.nvim")
+
 local sn = ffi.load("/home/nedas/source/snipit/zig-out/lib/libsnipit.so")
 
 -- :// we need to fix multi line strings
