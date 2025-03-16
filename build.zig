@@ -27,7 +27,9 @@ pub fn build(b: *std.Build) void {
     lib.linkLibrary(libpng.artifact("png"));
     lib.linkLibrary(freetype.artifact("freetype"));
 
+    lib.addIncludePath(b.path("src"));
     lib.addCSourceFile(.{ .file = b.path("src/main.c") });
+    lib.addCSourceFile(.{ .file = b.path("src/utf8.c") });
 
     b.installArtifact(lib);
 

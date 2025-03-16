@@ -1,5 +1,6 @@
-* Handle utf8
 * Handle multi line tokens
+* copy image to clipboard using nvim
 * Colored emojis
 * default vim highlights
+* add zh fonts
 ? lsp highlights

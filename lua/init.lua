@@ -1,8 +1,6 @@
 local ffi = require("ffi")
 local bit = require("bit")
 
-local utf8 = require("snipit.utf8")
-
 local M = {}
 
 local sn = ffi.load("/home/nedas/source/snipit/zig-out/lib/libsnipit.so")
@@ -168,7 +166,7 @@ M.setup = function ()
     end
 
     -- we need to preinit fonts
-    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Regular.ttf", 0)
+    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-R.ttf", 0)
     if err ~= 0 then
       sn.sn_done(ctx)
       error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))

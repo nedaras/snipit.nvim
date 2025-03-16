@@ -8,6 +8,8 @@
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
 
+#include "utf8.h"
+
 #define SN_API extern
 
 enum sn_font_type_enum : uint8_t {
@@ -184,7 +186,6 @@ sn_error sn_render_codepoint(sn_ctx ctx, int32_t off_x, int32_t off_y, uint32_t 
   FT_Error err; 
 
   uint32_t idx = FT_Get_Char_Index(*pface, codepoint); // fire - 0x1F525
-  assert(idx != 0); // draw that square x for like invalid char
 
   err = FT_Load_Glyph(*pface, idx, FT_LOAD_RENDER);
   if (err != FT_Err_Ok) {
@@ -254,10 +255,13 @@ sn_error sn_render_codepoint(sn_ctx ctx, int32_t off_x, int32_t off_y, uint32_t 
 }
 
 SN_API sn_error sn_draw_text(sn_ctx ctx, uint32_t row, uint32_t col, const char* text) {
+  utf8_iter iter;
+  utf8_init(&iter, text);
+
   uint32_t x = 0;
-  while (*text != '\0') {
+  while (utf8_next(&iter)) {
     uint32_t advance; 
-    sn_error err = sn_render_codepoint(ctx, col * (SN_FONT_SIZE >> 1) + x, row * SN_LINE_HEIGHT, *text, &advance);
+    sn_error err = sn_render_codepoint(ctx, col * (SN_FONT_SIZE >> 1) + x, row * SN_LINE_HEIGHT, iter.codepoint, &advance);
     if (err != 0) {
       return err;
     }
@@ -415,6 +419,9 @@ SN_API void sn_free_output(uint8_t** src) {
 
 int main(int argc, char *argv[]) {
   if (argc < 3) return 1;
+
+  utf8_iter iter;
+  utf8_init(&iter, argv[2]);
 
   sn_error err;
 
