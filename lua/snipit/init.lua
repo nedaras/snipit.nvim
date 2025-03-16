@@ -263,13 +263,13 @@ M.setup = function ()
     error("sn_add_font: " .. ffi.string(libsn.sn_error_name(err)))
   end
 
-  err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Italic.ttf", 2)
+  err = libsn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Italic.ttf", 2)
   if err ~= 0 then
     libsn.sn_done(ctx)
     error("sn_add_font: " .. ffi.string(libsn.sn_error_name(err)))
   end
 
-  err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-BoldItalic.ttf", 3)
+  err = libsn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-BoldItalic.ttf", 3)
   if err ~= 0 then
     libsn.sn_done(ctx)
     error("sn_add_font: " .. ffi.string(libsn.sn_error_name(err)))
