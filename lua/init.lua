@@ -9,9 +9,11 @@ local sn = ffi.load("/home/nedas/source/snipit/zig-out/lib/libsnipit.so")
 ffi.cdef[[
   typedef void* sn_ctx;
 
-  sn_ctx sn_init(uint32_t width, uint32_t height);
+  sn_ctx sn_init();
 
   void sn_done(sn_ctx ctx);
+
+  int sn_set_size(sn_ctx ctx, uint16_t rows, uint16_t cols);
 
   int sn_add_font(sn_ctx ctx, const char* sub_path, uint8_t font_type);
 
@@ -19,9 +21,9 @@ ffi.cdef[[
 
   void sn_set_font(sn_ctx ctx, uint8_t font_type);
 
-  void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b);
+  void sn_set_fill(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b);
 
-  void sn_fill(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b);
+  void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b);
 
   int sn_output(sn_ctx ctx, uint8_t** dist, size_t* dist_len);
 
@@ -143,6 +145,37 @@ local function combine_fonts(groups)
 end
 
 M.setup = function ()
+  local err
+  local ctx = sn.sn_init()
+
+  if ctx == nil then
+    error("sn_init: out of memory")
+  end
+
+  err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Regular.ttf", 0)
+  if err ~= 0 then
+    sn.sn_done(ctx)
+    error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
+  end
+
+  err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Bold.ttf", 1)
+  if err ~= 0 then
+    sn.sn_done(ctx)
+    error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
+  end
+
+  err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Italic.ttf", 2)
+  if err ~= 0 then
+    sn.sn_done(ctx)
+    error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
+  end
+
+  err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-BoldItalic.ttf", 3)
+  if err ~= 0 then
+    sn.sn_done(ctx)
+    error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
+  end
+
   vim.api.nvim_create_user_command("Snipit", function (opts)
     local syntax = {}
     get_ts_syntax(syntax, opts.line1, opts.line2)
@@ -151,47 +184,21 @@ M.setup = function ()
       return
     end
 
-
     local cols = 0
     for key, val in pairs(syntax) do
       local col = bit.band(key, 0xFFFF)
       cols = math.max(cols, col + #val.token)
     end
 
-    local err
-    local ctx = sn.sn_init(opts.line2 - opts.line1 + 1, cols)
-
-    if not ctx then
-      error("sn_init: out of memory")
-    end
-
-    -- we need to preinit fonts
-    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-R.ttf", 0)
-    if err ~= 0 then
-      sn.sn_done(ctx)
-      error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
-    end
-
-    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Bold.ttf", 1)
-    if err ~= 0 then
-      sn.sn_done(ctx)
-      error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
-    end
-
-    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Italic.ttf", 2)
-    if err ~= 0 then
-      sn.sn_done(ctx)
-      error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
-    end
-
-    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-BoldItalic.ttf", 3)
-    if err ~= 0 then
-      sn.sn_done(ctx)
-      error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
-    end
-
     -- fill with normal bg color
-    sn.sn_fill(ctx, 25, 23, 36)
+    sn.sn_set_fill(ctx, 25, 23, 36)
+
+    err = sn.sn_set_size(ctx, opts.line2 - opts.line1 + 1, cols)
+    if err ~= 0 then
+      sn.sn_done(ctx)
+      error("sn_set_size: " .. ffi.string(sn.sn_error_name(err)))
+    end
+
 
     -- this is unordered
     for key, val in pairs(syntax) do
@@ -246,8 +253,6 @@ M.setup = function ()
       print("Saved at " .. save_path)
 
       sn.sn_free_output(out)
-      sn.sn_done(ctx)
-
     else
       -- vim.fn.setreg('+', image)
       print("Copied to clipboard")

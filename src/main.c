@@ -5,6 +5,8 @@
 #include <ft2build.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
 
@@ -57,7 +59,7 @@ struct sn_ctx_s {
 typedef sn_ctx_t* sn_ctx;
 
 // todo: enable dymanic size after we implement own arr_list thingy
-SN_API sn_ctx sn_init(uint32_t rows, uint32_t cols) {
+SN_API sn_ctx sn_init() {
   FT_Error err;
   sn_ctx out = malloc(sizeof(sn_ctx_t));
 
@@ -71,16 +73,9 @@ SN_API sn_ctx sn_init(uint32_t rows, uint32_t cols) {
     goto err;
   }
 
-  out->bitmap.width = cols * (SN_FONT_SIZE >> 1);
-  out->bitmap.height = rows * SN_LINE_HEIGHT;
-  out->bitmap.buffer = malloc(out->bitmap.width * out->bitmap.height * 3);
-
-  if (out->bitmap.buffer == NULL) {
-    err = FT_Err_Out_Of_Memory;
-    goto err;
-  }
-
-  memset(out->bitmap.buffer, 0, out->bitmap.width * out->bitmap.height * 3);
+  out->bitmap.width = 0;
+  out->bitmap.height = 0;
+  out->bitmap.buffer = NULL;
 
   for (int i = 0; i < SN_FONT_TYPES; i++) {
     out->fonts[i] = NULL;
@@ -106,8 +101,9 @@ err:
 SN_API void sn_done(sn_ctx ctx) {
   assert(ctx != NULL);
 
-  assert(ctx->bitmap.buffer != NULL);
-  free(ctx->bitmap.buffer);
+  if (ctx->bitmap.buffer != NULL) {
+    free(ctx->bitmap.buffer);
+  }
 
   for (uint8_t i = 0; i < SN_FONT_TYPES; i++) {
     if (ctx->fonts[i] == NULL) continue;
@@ -117,6 +113,33 @@ SN_API void sn_done(sn_ctx ctx) {
   assert(FT_Done_FreeType(ctx->library) == FT_Err_Ok);
 
   free(ctx);
+}
+
+SN_API sn_error sn_set_size(sn_ctx ctx, uint16_t rows, uint16_t cols) {
+  uint32_t width = cols * (SN_FONT_SIZE >> 1);
+  uint32_t height = rows * SN_LINE_HEIGHT;
+
+  // todo: add like realloc or reserve the buffer size
+  if (ctx->bitmap.buffer != NULL) {
+    free(ctx->bitmap.buffer);
+  }
+
+  ctx->bitmap.buffer = malloc(width * height * 3);
+  if (ctx->bitmap.buffer == NULL) {
+    return FT_Err_Out_Of_Memory;
+  }
+
+  ctx->bitmap.width = width;
+  ctx->bitmap.height = height;
+
+  uint8_t* src = ctx->bitmap.buffer;
+  for (uint32_t i = 0; i <  ctx->bitmap.width * ctx->bitmap.height; i++) {
+    *src++ = ctx->fill_color.r;
+    *src++ = ctx->fill_color.g;
+    *src++ = ctx->fill_color.b;
+  }
+
+  return 0;
 }
 
 SN_API const char* sn_error_name(sn_error err) {
@@ -277,19 +300,13 @@ SN_API void sn_set_font(sn_ctx ctx, sn_font_type font_type) {
   ctx->font_type = font_type;
 }
 
-SN_API void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
-  ctx->pencil_color = (sn_color_t){r, g, b};
+SN_API void sn_set_fill(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
+  assert(ctx != NULL);
+  ctx->fill_color = (sn_color_t){r, g, b};
 }
 
-SN_API void sn_fill(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
-  uint8_t* src = ctx->bitmap.buffer;
-  for (uint32_t i = 0; i <  ctx->bitmap.width * ctx->bitmap.height; i++) {
-    *src++ = r;
-    *src++ = g;
-    *src++ = b;
-  }
-
-  ctx->fill_color = (sn_color_t){r, g, b};
+SN_API void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
+  ctx->pencil_color = (sn_color_t){r, g, b};
 }
 
 struct sn_writer_state_s {
@@ -415,79 +432,4 @@ SN_API void sn_free_output(uint8_t** src) {
 
   free(*src);
   *src = NULL;
-}
-
-int main(int argc, char *argv[]) {
-  if (argc < 3) return 1;
-
-  utf8_iter iter;
-  utf8_init(&iter, argv[2]);
-
-  sn_error err;
-
-  sn_ctx ctx = sn_init(2, 50);
-  if (ctx == NULL) {
-    err = FT_Err_Out_Of_Memory; // todo: handle these stuff
-                                // add like sn_get_err thing idk smth like zstd library
-    goto err;
-  }
-
-  err = sn_add_font(ctx, argv[1], SN_FONT_TYPE_REGULAR);
-  if (err != 0) {
-    goto err;
-  }
-
-  sn_fill(ctx, 25, 23, 36);
-  sn_set_color(ctx, 0, 255, 255);
-
-  // todo: make sn_draw_advance that will have like { text, color } arr
-
-  err = sn_draw_text(ctx, 0, 0, argv[2]);
-  if (err != 0) {
-    goto err;
-  }
-
-  err = sn_draw_text(ctx, 1, 2, argv[2]);
-  if (err != 0) {
-    goto err;
-  }
-
-  FILE* file = fopen("out.png", "wb");
-  if (file == NULL) {
-    printf("snipit.nvim: out.png: cannot open: idk\n");
-    assert(false);
-  }
-
-  uint8_t* out;
-  size_t out_len;
-
-  err = sn_output(ctx, &out, &out_len);
-  if (err != 0) {
-    goto err;
-  }
-
-  size_t idx = 0;
-  while (idx != out_len) {
-    size_t amt = fwrite(out + idx, 8, out_len - idx, file);
-    if (amt == 0) break;
-    idx += amt;
-  }
-  assert(idx == out_len);
-
-  printf("out.png\n");
-
-  fclose(file);
-
-  sn_free_output(&out);
-  sn_done(ctx);
-
-  return 0;
-
-err:
-  if (file != NULL) fclose(file);
-  if (ctx != NULL) sn_done(ctx);
-
-  printf("%s\n", FT_Error_String(err));
-
-  return 1;
 }
