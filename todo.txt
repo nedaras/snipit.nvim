@@ -1,0 +1,5 @@
+* Handle utf8
+* Handle multi line tokens
+* Colored emojis
+* default vim highlights
+? lsp highlights

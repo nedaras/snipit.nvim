@@ -8,16 +8,23 @@
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
 
-#define SN_API
+#define SN_API extern
 
-#define SN_LINE_HEIGHT  36 // im an idiot everything is mesured here 64th of an pixel
+enum sn_font_type_enum : uint8_t {
+  SN_FONT_TYPE_REGULAR,
+  SN_FONT_TYPE_BOLD,
+  SN_FONT_TYPE_ITALIC,
+  SN_FONT_TYPE_BOLDITALIC,
+  SN_FONT_TYPE_EMOJI,
+
+  SN_FONT_TYPES,
+} typedef sn_font_type;
+
+#define SN_LINE_HEIGHT  36
 #define SN_FONT_SIZE    32
-#define SN_FONTS        4 // need 4 fonts (regular, italic, bold, emoji)
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define min(a, b) ((a) < (b) ? (a) : (b))
-
-#define div_ceil(a, b) (((a) + (b) - 1) / (b))
 
 typedef int sn_error;
 
@@ -38,9 +45,9 @@ struct sn_ctx_s {
 
   FT_Library library;
 
-  FT_Face fonts[SN_FONTS];
-  uint8_t fonts_len;
+  FT_Face fonts[SN_FONT_TYPES];
 
+  int8_t font_type;
   sn_color_t pencil_color;
   sn_color_t fill_color;
 } typedef sn_ctx_t;
@@ -62,7 +69,7 @@ SN_API sn_ctx sn_init(uint32_t rows, uint32_t cols) {
     goto err;
   }
 
-  out->bitmap.width = cols * (SN_LINE_HEIGHT >> 1);
+  out->bitmap.width = cols * (SN_FONT_SIZE >> 1);
   out->bitmap.height = rows * SN_LINE_HEIGHT;
   out->bitmap.buffer = malloc(out->bitmap.width * out->bitmap.height * 3);
 
@@ -73,11 +80,11 @@ SN_API sn_ctx sn_init(uint32_t rows, uint32_t cols) {
 
   memset(out->bitmap.buffer, 0, out->bitmap.width * out->bitmap.height * 3);
 
-  for (int i = 0; i < SN_FONTS; i++) {
+  for (int i = 0; i < SN_FONT_TYPES; i++) {
     out->fonts[i] = NULL;
   }
 
-  out->fonts_len = 0;
+  out->font_type = -1;
   out->pencil_color = (sn_color_t){ 255, 255, 255 };
   out->fill_color = (sn_color_t){ 0, 0, 0 };
 
@@ -100,8 +107,8 @@ SN_API void sn_done(sn_ctx ctx) {
   assert(ctx->bitmap.buffer != NULL);
   free(ctx->bitmap.buffer);
 
-  for (uint8_t i = 0; i < ctx->fonts_len; i++) {
-    assert(ctx->fonts[i] != NULL);
+  for (uint8_t i = 0; i < SN_FONT_TYPES; i++) {
+    if (ctx->fonts[i] == NULL) continue;
     assert(FT_Done_Face(ctx->fonts[i]) == FT_Err_Ok);
   }
 
@@ -128,14 +135,13 @@ bool is_colored(FT_Face face) {
   return len != 0;
 }
 
-// todo: rename to set_font and have SN_FONT_TYPE_
-// and add `sub_path_len` param
-SN_API sn_error sn_add_font(sn_ctx ctx, const char* sub_path) {
+SN_API sn_error sn_add_font(sn_ctx ctx, const char* sub_path, sn_font_type font_type) {
   assert(ctx != NULL);
-  assert(ctx->fonts_len != SN_FONTS); // ret err
+  assert(SN_FONT_TYPES > font_type);
+  assert(ctx->fonts[font_type] == NULL);
   
   FT_Error err; 
-  FT_Face* pface = &ctx->fonts[ctx->fonts_len];
+  FT_Face* pface = &ctx->fonts[font_type];
   assert(*pface == NULL);
 
   err = FT_New_Face(ctx->library, sub_path, 0, pface);
@@ -152,7 +158,10 @@ SN_API sn_error sn_add_font(sn_ctx ctx, const char* sub_path) {
     if (err != FT_Err_Ok) goto err;
   }
 
-  ctx->fonts_len++;
+  if (ctx->font_type == -1) {
+    ctx->font_type = font_type;
+  }
+
   return 0;
 
 err:
@@ -168,9 +177,10 @@ sn_error sn_render_codepoint(sn_ctx ctx, int32_t off_x, int32_t off_y, uint32_t 
   assert(ctx->bitmap.height > off_y);
 
   assert(ctx != NULL);
-  assert(ctx->fonts_len == 1);
+  assert(ctx->font_type != -1);
+  assert(ctx->fonts[ctx->font_type] != NULL);
 
-  FT_Face* pface = &ctx->fonts[0];
+  FT_Face* pface = &ctx->fonts[ctx->font_type];
   FT_Error err; 
 
   uint32_t idx = FT_Get_Char_Index(*pface, codepoint); // fire - 0x1F525
@@ -247,7 +257,7 @@ SN_API sn_error sn_draw_text(sn_ctx ctx, uint32_t row, uint32_t col, const char*
   uint32_t x = 0;
   while (*text != '\0') {
     uint32_t advance; 
-    sn_error err = sn_render_codepoint(ctx, col * (SN_LINE_HEIGHT >> 1) + x, row * SN_LINE_HEIGHT, *text, &advance);
+    sn_error err = sn_render_codepoint(ctx, col * (SN_FONT_SIZE >> 1) + x, row * SN_LINE_HEIGHT, *text, &advance);
     if (err != 0) {
       return err;
     }
@@ -256,6 +266,11 @@ SN_API sn_error sn_draw_text(sn_ctx ctx, uint32_t row, uint32_t col, const char*
   }
 
   return 0;
+}
+
+SN_API void sn_set_font(sn_ctx ctx, sn_font_type font_type) {
+  assert(SN_FONT_TYPES > font_type);
+  ctx->font_type = font_type;
 }
 
 SN_API void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
@@ -410,7 +425,7 @@ int main(int argc, char *argv[]) {
     goto err;
   }
 
-  err = sn_add_font(ctx, argv[1]);
+  err = sn_add_font(ctx, argv[1], SN_FONT_TYPE_REGULAR);
   if (err != 0) {
     goto err;
   }

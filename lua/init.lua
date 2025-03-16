@@ -15,9 +15,11 @@ ffi.cdef[[
 
   void sn_done(sn_ctx ctx);
 
-  int sn_add_font(sn_ctx ctx, const char* sub_path);
+  int sn_add_font(sn_ctx ctx, const char* sub_path, uint8_t font_type);
 
   int sn_draw_text(sn_ctx ctx, uint32_t row, uint32_t col, const char* text);
+
+  void sn_set_font(sn_ctx ctx, uint8_t font_type);
 
   void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b);
 
@@ -121,6 +123,27 @@ local function is_absolute(path)
   return path:sub(1, 1) == '/'
 end
 
+local function combine_fonts(groups)
+  local font_type = 0
+  -- update c abi so i could do smth like SN_FONT_TYPE_BOLD | SN_FOMT_TYPE_ITALIC
+  -- then this dumb if else stuff
+  for _, val in ipairs(groups) do
+      local hl_info = vim.api.nvim_get_hl_by_name("@" .. val, true)
+      if hl_info.bold then
+        if font_type == 2 then
+          return 3
+        end
+        font_type = 1
+      elseif hl_info.italic then
+        if font_type == 1 then
+          return 3
+        end
+        font_type = 2
+      end
+  end
+  return font_type
+end
+
 M.setup = function ()
   vim.api.nvim_create_user_command("Snipit", function (opts)
     local syntax = {}
@@ -140,12 +163,36 @@ M.setup = function ()
     local err
     local ctx = sn.sn_init(opts.line2 - opts.line1 + 1, cols)
 
-    assert(ctx ~= nil, "init")
+    if not ctx then
+      error("sn_init: out of memory")
+    end
 
-    -- we need to add like clear function with new rows and cols cuz adding font every time we snap is just stupid
-    err = sn.sn_add_font(ctx, "/usr/share/fonts/truetype/ubuntu/UbuntuMono-B.ttf")
-    assert(err == 0, "add_font: " .. ffi.string(sn.sn_error_name(err))) -- if we will just assert freeing is still needed
+    -- we need to preinit fonts
+    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Regular.ttf", 0)
+    if err ~= 0 then
+      sn.sn_done(ctx)
+      error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
+    end
 
+    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Bold.ttf", 1)
+    if err ~= 0 then
+      sn.sn_done(ctx)
+      error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
+    end
+
+    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Italic.ttf", 2)
+    if err ~= 0 then
+      sn.sn_done(ctx)
+      error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
+    end
+
+    err = sn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-BoldItalic.ttf", 3)
+    if err ~= 0 then
+      sn.sn_done(ctx)
+      error("sn_add_font: " .. ffi.string(sn.sn_error_name(err)))
+    end
+
+    -- fill with normal bg color
     sn.sn_fill(ctx, 25, 23, 36)
 
     -- this is unordered
@@ -156,6 +203,8 @@ M.setup = function ()
 
       -- print(row, col, val.token)
 
+      sn.sn_set_font(ctx, combine_fonts(val.groups))
+
       if hl_info.foreground then
         local r = bit.band(bit.rshift(hl_info.foreground, 16), 0xFF)
         local g = bit.band(bit.rshift(hl_info.foreground, 8), 0xFF)
@@ -163,16 +212,24 @@ M.setup = function ()
 
         sn.sn_set_color(ctx, r, g, b)
       else
-        sn.sn_set_color(ctx, 0, 255, 255) -- use default hi
+        sn.sn_set_color(ctx, 0, 255, 255) -- use Normal hi
       end
 
-      sn.sn_draw_text(ctx, row - opts.line1 + 1, col, val.token)
+      err = sn.sn_draw_text(ctx, row - opts.line1 + 1, col, val.token)
+      if err ~= 0 then
+        sn.sn_done(ctx)
+        error("sn_draw_text: " .. ffi.string(sn.sn_error_name(err)))
+      end
     end
 
     local out = ffi.new("uint8_t*[1]")
     local out_len = ffi.new("size_t[1]")
 
-    assert(sn.sn_output(ctx, out, out_len), "output")
+    err = sn.sn_output(ctx, out, out_len)
+    if err ~= 0 then
+      sn.sn_done(ctx)
+        error("sn_output: " .. ffi.string(sn.sn_error_name(err)))
+    end
 
     local image = ffi.string(out[0], out_len[0])
 
