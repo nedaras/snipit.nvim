@@ -4,13 +4,15 @@
 #include <png.h>
 #include <ft2build.h>
 #include <limits.h>
+#include <stdio.h>
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
 
 #define SN_API
 
-#define SN_LINE_HEIGHT 16
-#define SN_FONTS    4 // need 4 fonts (regular, italic, bold, emoji)
+#define SN_LINE_HEIGHT  37 // how to get this?
+#define SN_FONT_SIZE    32
+#define SN_FONTS        4 // need 4 fonts (regular, italic, bold, emoji)
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define min(a, b) ((a) < (b) ? (a) : (b))
@@ -46,7 +48,7 @@ struct sn_ctx_s {
 typedef sn_ctx_t* sn_ctx;
 
 // todo: enable dymanic size after we implement own arr_list thingy
-SN_API sn_ctx sn_init(uint32_t width, uint32_t height) {
+SN_API sn_ctx sn_init(uint32_t rows, uint32_t cols) {
   FT_Error err;
   sn_ctx out = malloc(sizeof(sn_ctx_t));
 
@@ -60,16 +62,16 @@ SN_API sn_ctx sn_init(uint32_t width, uint32_t height) {
     goto err;
   }
 
-  out->bitmap.width = width;
-  out->bitmap.height = height;
-  out->bitmap.buffer = malloc(width * height * 3);
+  out->bitmap.width = cols * (SN_FONT_SIZE >> 1);
+  out->bitmap.height = rows * SN_LINE_HEIGHT;
+  out->bitmap.buffer = malloc(out->bitmap.width * out->bitmap.height * 3);
 
   if (out->bitmap.buffer == NULL) {
     err = FT_Err_Out_Of_Memory;
     goto err;
   }
 
-  memset(out->bitmap.buffer, 0, width);
+  memset(out->bitmap.buffer, 0, out->bitmap.width * out->bitmap.height * 3);
 
   for (int i = 0; i < SN_FONTS; i++) {
     out->fonts[i] = NULL;
@@ -146,7 +148,7 @@ SN_API sn_error sn_add_font(sn_ctx ctx, const char* sub_path) {
     err = FT_Select_Size(*pface, 0);
     if (err != FT_Err_Ok) goto err;
   } else {
-    err = FT_Set_Pixel_Sizes(*pface, 0, SN_LINE_HEIGHT);
+    err = FT_Set_Pixel_Sizes(*pface, 0, SN_FONT_SIZE);
     if (err != FT_Err_Ok) goto err;
   }
 
@@ -161,7 +163,7 @@ err:
   return err;
 }
 
-sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_t codepoint, uint32_t* advance) {
+sn_error sn_render_codepoint(sn_ctx ctx, int32_t off_x, int32_t off_y, uint32_t codepoint, uint32_t* advance) {
   assert(ctx->bitmap.width > off_x);
   assert(ctx->bitmap.height > off_y);
 
@@ -180,7 +182,7 @@ sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_
   }
 
   FT_GlyphSlot glyph = (*pface)->glyph;
-  uint32_t line_height = (*pface)->size->metrics.height;
+  uint32_t font_size = (*pface)->size->metrics.height;
 
   err = FT_Render_Glyph(glyph, FT_RENDER_MODE_NORMAL);
   if (err != FT_Err_Ok) {
@@ -203,20 +205,17 @@ sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_
       }
     }
   } else {
-    uint32_t bearing_x = div_ceil(glyph->metrics.horiBearingX * SN_LINE_HEIGHT, line_height);
-    uint32_t bearing_y = div_ceil(glyph->metrics.horiBearingY * SN_LINE_HEIGHT, line_height);
+    // todo fix that these values can be signed
+    int32_t bearing_x = div_ceil(glyph->metrics.horiBearingX * SN_FONT_SIZE, font_size);
+    int32_t bearing_y = div_ceil(glyph->metrics.horiBearingY * SN_FONT_SIZE, font_size);
 
-    assert(bearing_y <= SN_LINE_HEIGHT); // it it true?
+    assert(bearing_y <= SN_FONT_SIZE); // it it true?
 
-    off_y += SN_LINE_HEIGHT - bearing_y;
+    off_y += SN_FONT_SIZE - bearing_y;
     off_x += bearing_x;
 
-    // todo: fix it so off_y does not become bigger then SN_HEIGHT
-    assert(ctx->bitmap.width > off_x);
-    assert(ctx->bitmap.height > off_y);
-
-    for (uint32_t y = 0; y < min(glyph->bitmap.rows, ctx->bitmap.height - off_y); y++) {
-      for (uint32_t x = 0; x < min(glyph->bitmap.width, ctx->bitmap.width - off_x); x++) {
+    for (uint32_t y = 0; y < min(glyph->bitmap.rows, min(ctx->bitmap.height, ctx->bitmap.height - off_y)); y++) {
+      for (uint32_t x = 0; x < min(glyph->bitmap.width, min(ctx->bitmap.width, ctx->bitmap.width - off_x)); x++) {
         uint8_t h = glyph->bitmap.buffer[y * glyph->bitmap.width + x];
         uint8_t inv_h = 255 - h;
 
@@ -235,10 +234,9 @@ sn_error sn_render_codepoint(sn_ctx ctx, uint32_t off_x, uint32_t off_y, uint32_
       }
     }
   }
-
   // todo: add kerning if i rly want to
   if (advance != NULL) {
-    *advance = div_ceil(glyph->advance.x * SN_LINE_HEIGHT, line_height);
+    *advance = div_ceil(glyph->advance.x * SN_FONT_SIZE, font_size);
   }
 
   return 0;
@@ -248,8 +246,7 @@ SN_API sn_error sn_draw_text(sn_ctx ctx, uint32_t row, uint32_t col, const char*
   uint32_t x = 0;
   while (*text != '\0') {
     uint32_t advance; 
-    // todo: get space width for spacing SN_LINE_HEIGHT >> 1 is not correct
-    sn_error err = sn_render_codepoint(ctx, col * (SN_LINE_HEIGHT >> 1) + x, row * SN_LINE_HEIGHT, *text, &advance);
+    sn_error err = sn_render_codepoint(ctx, col * (SN_FONT_SIZE >> 1) + x, row * SN_LINE_HEIGHT, *text, &advance);
     if (err != 0) {
       return err;
     }
@@ -398,4 +395,76 @@ SN_API void sn_free_output(uint8_t** src) {
 
   free(*src);
   *src = NULL;
+}
+
+int main(int argc, char *argv[]) {
+  if (argc < 3) return 1;
+
+  sn_error err;
+
+  sn_ctx ctx = sn_init(2, 12);
+  if (ctx == NULL) {
+    err = FT_Err_Out_Of_Memory; // todo: handle these stuff
+                                // add like sn_get_err thing idk smth like zstd library
+    goto err;
+  }
+
+  err = sn_add_font(ctx, argv[1]);
+  if (err != 0) {
+    goto err;
+  }
+
+  sn_fill(ctx, 25, 23, 36);
+  sn_set_color(ctx, 0, 255, 255);
+
+  // todo: make sn_draw_advance that will have like { text, color } arr
+
+  err = sn_draw_text(ctx, 0, 0, argv[2]);
+  if (err != 0) {
+    goto err;
+  }
+
+  err = sn_draw_text(ctx, 1, 0, argv[2]);
+  if (err != 0) {
+    goto err;
+  }
+
+  FILE* file = fopen("out.png", "wb");
+  if (file == NULL) {
+    printf("snipit.nvim: out.png: cannot open: idk\n");
+    assert(false);
+  }
+
+  uint8_t* out;
+  size_t out_len;
+
+  err = sn_output(ctx, &out, &out_len);
+  if (err != 0) {
+    goto err;
+  }
+
+  size_t idx = 0;
+  while (idx != out_len) {
+    size_t amt = fwrite(out + idx, 8, out_len - idx, file);
+    if (amt == 0) break;
+    idx += amt;
+  }
+  assert(idx == out_len);
+
+  printf("out.png\n");
+
+  fclose(file);
+
+  sn_free_output(&out);
+  sn_done(ctx);
+
+  return 0;
+
+err:
+  if (file != NULL) fclose(file);
+  if (ctx != NULL) sn_done(ctx);
+
+  printf("%s\n", FT_Error_String(err));
+
+  return 1;
 }

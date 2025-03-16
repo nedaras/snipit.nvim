@@ -134,8 +134,15 @@ M.setup = function ()
       return
     end
 
+
+    local cols = 0
+    for key, val in pairs(syntax) do
+      local col = bit.band(key, 0xFFFF)
+      cols = math.max(cols, col + #val.token)
+    end
+
     local err
-    local ctx = sn.sn_init(1024, 1024)
+    local ctx = sn.sn_init(opts.line2 - opts.line1 + 1, cols)
 
     assert(ctx ~= nil, "init")
 

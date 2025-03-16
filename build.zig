@@ -15,7 +15,7 @@ pub fn build(b: *std.Build) void {
         .@"enable-libpng" = true,
     });
 
-    const exe = b.addSharedLibrary(.{
+    const lib = b.addSharedLibrary(.{
         .name = "snipit",
         .target = target,
         .optimize = optimize,
@@ -23,15 +23,15 @@ pub fn build(b: *std.Build) void {
 
     // todo: add "-DFT_CONFIG_OPTION_ERROR_STRINGS=1", inside freetype
 
-    exe.linkLibC();
-    exe.linkLibrary(libpng.artifact("png"));
-    exe.linkLibrary(freetype.artifact("freetype"));
+    lib.linkLibC();
+    lib.linkLibrary(libpng.artifact("png"));
+    lib.linkLibrary(freetype.artifact("freetype"));
 
-    exe.addCSourceFile(.{ .file = b.path("src/main.c") });
+    lib.addCSourceFile(.{ .file = b.path("src/main.c") });
 
-    b.installArtifact(exe);
+    b.installArtifact(lib);
 
-    const run_cmd = b.addRunArtifact(exe);
+    const run_cmd = b.addRunArtifact(lib);
     run_cmd.step.dependOn(b.getInstallStep());
 
     if (b.args) |args| {
