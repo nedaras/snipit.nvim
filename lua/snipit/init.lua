@@ -1,19 +1,23 @@
 local ffi = require("ffi")
 local bit = require("bit")
+local path = require("snipit.path")
 
 local M = {}
 
-M.options = {
-  root = debug.getinfo(1, "S").source:sub(2), --:match("(.*[/\\])")
-  save_file = "out.png",
-  -- font_size
-  -- fonts:
-    -- regular
-    -- italic
-    -- bold
-}
-
+-- todo add path.resolve({ paths, "../../../" }) cuz this is just crazy
+M.root = path.dirname(path.dirname(path.dirname(debug.getinfo(1, "S").source:sub(2)) or error("nil")) or error("nil")) or error("nil")
 M.has_setup = false
+
+M.options = {
+  save_file = "out.png",
+  -- font_size = 32,
+  fonts = {
+    regular = M.root .. "/fonts/UbuntuMono-R.ttf",
+    bold = M.root .. "/fonts/UbuntuMono-B.ttf",
+    italic = M.root .. "/fonts/UbuntuMono-RI.ttf",
+    bold_italic = M.root .. "/fonts/UbuntuMono-BI.ttf",
+  },
+}
 
 local function get_ts_syntax(syntax, line1, line2)
   local buf = vim.api.nvim_get_current_buf()
@@ -82,18 +86,6 @@ local function get_ts_syntax(syntax, line1, line2)
         ::continue::
     end
   end, true)
-end
-
-local function is_alpha(c)
-  return (c >= 'a' and c <= 'z') or (c > 'A' and c <= 'Z')
-end
-
-local function is_absolute(path)
-  if ffi.os == "Windows" then
-    return path:sub(2, 2) == ':' and (is_alpha(path:sub(1, 1)))
-  end
-
-  return path:sub(1, 1) == '/'
 end
 
 local function combine_fonts(groups)
@@ -191,7 +183,7 @@ M.snip = function (opts)
 
   local save_path = M.options.save_file
   if save_path then
-    if not is_absolute(save_path) then
+    if not path.is_absolute(save_path) then
       save_path = vim.fn.getcwd() .. "/" .. save_path
     end
 
@@ -251,28 +243,28 @@ M.setup = function ()
   end
 
   -- add these from root
-  err = libsn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Regular.ttf", 0)
+  err = libsn.sn_add_font(ctx, M.options.fonts.regular, 0)
   if err ~= 0 then
     libsn.sn_done(ctx)
-    error("sn_add_font: " .. ffi.string(libsn.sn_error_name(err)))
+    error(string.format("sn_add_font: '%s': %s", M.options.fonts.regular, ffi.string(libsn.sn_error_name(err))))
   end
 
-  err = libsn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Bold.ttf", 1)
+  err = libsn.sn_add_font(ctx, M.options.fonts.bold, 1)
   if err ~= 0 then
     libsn.sn_done(ctx)
-    error("sn_add_font: " .. ffi.string(libsn.sn_error_name(err)))
+    error(string.format("sn_add_font: '%s': %s", M.options.fonts.bold, ffi.string(libsn.sn_error_name(err))))
   end
 
-  err = libsn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-Italic.ttf", 2)
+  err = libsn.sn_add_font(ctx, M.options.fonts.italic, 2)
   if err ~= 0 then
     libsn.sn_done(ctx)
-    error("sn_add_font: " .. ffi.string(libsn.sn_error_name(err)))
+    error(string.format("sn_add_font: '%s': %s", M.options.fonts.italic, ffi.string(libsn.sn_error_name(err))))
   end
 
-  err = libsn.sn_add_font(ctx, "/home/nedas/source/snipit/fonts/UbuntuMono-BoldItalic.ttf", 3)
+  err = libsn.sn_add_font(ctx, M.options.fonts.bold_italic, 3)
   if err ~= 0 then
     libsn.sn_done(ctx)
-    error("sn_add_font: " .. ffi.string(libsn.sn_error_name(err)))
+    error(string.format("sn_add_font: '%s': %s", M.options.fonts.bold_italic, ffi.string(libsn.sn_error_name(err))))
   end
 
   sn_ctx = ctx
