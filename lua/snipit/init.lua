@@ -19,7 +19,7 @@ M.options = {
   },
 }
 
-local function get_ts_syntax(syntax, line1, line2)
+local function inner_get_ts_syntax(out, line1, line2)
   local buf = vim.api.nvim_get_current_buf()
   local highlighter = vim.treesitter.highlighter
   local buf_highlighter = highlighter.active[buf]
@@ -65,7 +65,7 @@ local function get_ts_syntax(syntax, line1, line2)
         if row_end + 2 > line2 then
           return
         end
-        get_ts_syntax(syntax, row_end + 2, line2)
+        inner_get_ts_syntax(out, row_end + 2, line2)
         return
       end
 
@@ -75,17 +75,27 @@ local function get_ts_syntax(syntax, line1, line2)
       local token = vim.treesitter.get_node_text(node, buf)
       local key = bit.bor(bit.lshift(row, 16), col)
 
-      if not syntax[key] then
-        syntax[key] = {
+      if not out.syntax[key] then
+        out.syntax[key] = {
           token = token,
           groups = {},
         }
       end
 
-      table.insert(syntax[key].groups, group)
+      out.cols = math.max(out.cols, col + #token)
+      table.insert(out.syntax[key].groups, group)
         ::continue::
     end
   end, true)
+end
+
+local function get_ts_syntax(line1, line2)
+  local out = {
+    syntax = {},
+    cols = 0,
+  }
+  inner_get_ts_syntax(out, line1, line2)
+  return out.syntax, out.cols
 end
 
 local function combine_fonts(groups)
@@ -118,19 +128,10 @@ M.snip = function (opts)
   end
 
   local err
-  local syntax = {}
-
-  get_ts_syntax(syntax, opts.line1, opts.line2)
+  local syntax, cols = get_ts_syntax(opts.line1, opts.line2)
 
   if next(syntax) == nil then
     return
-  end
-
-  -- todo compute at get_ts_syntax
-  local cols = 0
-  for key, val in pairs(syntax) do
-    local col = bit.band(key, 0xFFFF)
-    cols = math.max(cols, col + #val.token)
   end
 
   -- fill with normal bg color
@@ -202,9 +203,31 @@ M.snip = function (opts)
   end
 end
 
+local function resolve_lib_path(root)
+  local resolve_arch = function ()
+    if jit.arch == "x86" or jit.arch == "x64" then
+      return "x86_64"
+    end
+    return jit.arch
+  end
+
+  local resolve_os = function ()
+    if jit.os == "MacOS" then
+      return "macos", "dylib"
+    elseif jit.os == "Windows" then
+      return "windows", "dll"
+    else
+      return string.lower(jit.os), "so"
+    end
+  end
+
+  local arch = resolve_arch()
+  local platform, extension = resolve_os()
+  return string.format("%s/lib/%s-%s-snipit.%s", root, arch, platform, extension)
+end
+
 M.setup = function ()
-  -- add these from root
-  libsn = ffi.load("/home/nedas/source/snipit/zig-out/lib/libsnipit.so")
+  libsn = ffi.load(resolve_lib_path(M.root)) -- print that this platform is not supported by default, but they can compile it
   assert(libsn ~= nil)
 
   -- :// we need to fix multi line strings
