@@ -126,9 +126,14 @@ M.snip = function (opts)
   if libsn == nil or sn_ctx == nil then
     return
   end
+  local elapsed = vim.loop.hrtime()
 
+  local treverse_timer = vim.loop.hrtime()
   local err
   local syntax, cols = get_ts_syntax(opts.line1, opts.line2)
+  local treverse_time = vim.loop.hrtime()
+
+  -- print("treverse:", (treverse_time - treverse_timer) / 1e6 .. "ms")
 
   if next(syntax) == nil then
     return
@@ -143,8 +148,8 @@ M.snip = function (opts)
     error("sn_set_size: " .. ffi.string(libsn.sn_error_name(err)))
   end
 
-
   -- this is unordered
+  local draw_timer = vim.loop.hrtime()
   for key, val in pairs(syntax) do
     local row = bit.rshift(key, 16)
     local col = bit.band(key, 0xFFFF)
@@ -170,6 +175,11 @@ M.snip = function (opts)
       error("sn_draw_text: " .. ffi.string(libsn.sn_error_name(err)))
     end
   end
+  local draw_time = vim.loop.hrtime()
+
+  -- print("draw:", (draw_time - draw_timer) / 1e6 .. "ms")
+
+  local output_timer = vim.loop.hrtime()
 
   local out = ffi.new("uint8_t*[1]")
   local out_len = ffi.new("size_t[1]")
@@ -181,6 +191,9 @@ M.snip = function (opts)
   end
 
   local image = ffi.string(out[0], out_len[0])
+
+  local output_time = vim.loop.hrtime()
+  -- print("output:", (output_time - output_timer) / 1e6 .. "ms")
 
   local save_path = M.options.save_file
   if save_path then
@@ -201,6 +214,8 @@ M.snip = function (opts)
     -- vim.fn.setreg('+', image)
     print("Copied to clipboard")
   end
+
+  print("took:", (vim.loop.hrtime() - elapsed) / 1e6 .. "ms")
 end
 
 local function resolve_lib_path(root)

@@ -1,6 +1,6 @@
-* Handle multi line tokens
-* copy image to clipboard using nvim
+* copy image to clipboard
 * Colored emojis
 * default vim highlights
 * add zh fonts
+* mb try to utilize simd
 ? lsp highlights

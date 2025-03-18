@@ -2,11 +2,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <png.h>
+#include <zlib.h>
 #include <ft2build.h>
-#include <limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include FT_FREETYPE_H
 #include FT_TRUETYPE_TABLES_H
 
@@ -14,6 +11,7 @@
 
 #define SN_API extern
 
+// generating them images is kinda sl
 enum sn_font_type_enum : uint8_t {
   SN_FONT_TYPE_REGULAR,
   SN_FONT_TYPE_BOLD,
@@ -116,13 +114,10 @@ SN_API void sn_done(sn_ctx ctx) {
 }
 
 SN_API sn_error sn_set_size(sn_ctx ctx, uint16_t rows, uint16_t cols) {
+  assert(ctx->bitmap.buffer == NULL);
+
   uint32_t width = cols * (SN_FONT_SIZE >> 1);
   uint32_t height = rows * SN_LINE_HEIGHT;
-
-  // todo: add like realloc or reserve the buffer size
-  if (ctx->bitmap.buffer != NULL) {
-    free(ctx->bitmap.buffer);
-  }
 
   ctx->bitmap.buffer = malloc(width * height * 3);
   if (ctx->bitmap.buffer == NULL) {
@@ -312,9 +307,21 @@ SN_API void sn_set_color(sn_ctx ctx, uint8_t r, uint8_t g, uint8_t b) {
 struct sn_writer_state_s {
   uint8_t* out;
   size_t out_len;
+  size_t out_cap;
 
   sn_error err;
 } typedef sn_writer_state_t;
+
+size_t grow_capacity(size_t curr, size_t minimum) {
+  size_t new_cap = curr;
+  static const size_t init_capacity = 64; // todd: get progromaticly we can use zig for that
+
+  while (1) {
+    new_cap += new_cap / 2 + init_capacity;
+    if (new_cap >= minimum)
+      return new_cap;
+  }
+}
 
 void sn_output_writer_write(png_structp ptr, uint8_t* buf, size_t buf_len) {
   if (buf_len == 0) return;
@@ -328,15 +335,19 @@ void sn_output_writer_write(png_structp ptr, uint8_t* buf, size_t buf_len) {
   }
 
   // do some logic here like vector store capacity and do some growing
-  if (true) {
+  // we rely need to doing it would make generating the image like 20-25% faster
+  if (state->out_len + buf_len > state->out_cap) {
+    size_t new_cap = grow_capacity(state->out_cap, state->out_len + buf_len);
+
     uint8_t* old = state->out;
-    uint8_t* new = malloc(state->out_len + buf_len);
+    uint8_t* new = malloc(new_cap);
 
     if (new == NULL) {
       free(state->out);
 
       state->out = NULL;
       state->out_len = 0;
+      state->out_cap = 0;
       state->err = FT_Err_Out_Of_Memory;
 
       return;
@@ -348,6 +359,7 @@ void sn_output_writer_write(png_structp ptr, uint8_t* buf, size_t buf_len) {
     }
 
     state->out = new;
+    state->out_cap = new_cap;
   }
 
   assert(state->out != NULL);
@@ -384,7 +396,11 @@ SN_API sn_error sn_output(sn_ctx ctx, uint8_t** dist, size_t* dist_len) {
     goto err;
   }
 
-  sn_writer_state_t write_state = (sn_writer_state_t){ NULL, 0, 0 };
+  sn_writer_state_t write_state = (sn_writer_state_t){ NULL, 0, 0, 0 };
+
+  png_set_compression_level(writer, Z_BEST_SPEED);
+  png_set_compression_strategy(writer, Z_RLE);
+  png_set_filter(writer, 0, PNG_FILTER_SUB);
 
   png_set_write_fn(writer, &write_state, &sn_output_writer_write, NULL);
   png_set_IHDR(writer, info, ctx->bitmap.width, ctx->bitmap.height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
@@ -401,6 +417,7 @@ SN_API sn_error sn_output(sn_ctx ctx, uint8_t** dist, size_t* dist_len) {
   }
 
   png_write_end(writer, NULL);
+
   err = write_state.err;
   if (err != 0) {
     goto err;
@@ -410,6 +427,11 @@ SN_API sn_error sn_output(sn_ctx ctx, uint8_t** dist, size_t* dist_len) {
 
   *dist = write_state.out;
   *dist_len = write_state.out_len;
+
+  free(ctx->bitmap.buffer);
+  ctx->bitmap.buffer = NULL;
+  ctx->bitmap.width = 0;
+  ctx->bitmap.height = 0;
 
   return 0;
 
@@ -422,6 +444,11 @@ err:
   } else {
     assert(info == NULL);
   }
+
+  free(ctx->bitmap.buffer);
+  ctx->bitmap.buffer = NULL;
+  ctx->bitmap.width = 0;
+  ctx->bitmap.height = 0;
 
   return err;
 }

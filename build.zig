@@ -4,6 +4,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const zlib = b.dependency("zlib", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const libpng = b.dependency("libpng", .{
         .target = target,
         .optimize = optimize,
@@ -24,6 +29,7 @@ pub fn build(b: *std.Build) void {
     // todo: add "-DFT_CONFIG_OPTION_ERROR_STRINGS=1", inside freetype
 
     lib.linkLibC();
+    lib.linkLibrary(zlib.artifact("z"));
     lib.linkLibrary(libpng.artifact("png"));
     lib.linkLibrary(freetype.artifact("freetype"));
 
