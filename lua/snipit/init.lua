@@ -19,6 +19,54 @@ M.options = {
   },
 }
 
+-- for future if like empty string "   " or already has that group remove it
+-- make this code cleaner perhaps
+-- todo: handle priority
+local function resolve_group(groups, group, hl_group)
+  if groups == nil then
+    group.hl_groups = { hl_group };
+    return { group }
+  end
+
+  for i = #groups, 1, -1 do
+    local last_group = groups[i]
+    if group.col >= last_group.col + last_group.w then
+      group.hl_groups = { hl_group };
+      table.insert(groups, group)
+      return groups;
+    end
+
+    if group.col >= last_group.col and last_group.col + last_group.w >= group.col + group.w then
+      local left = group.col - last_group.col
+      local right = last_group.w - left - group.w
+
+      if left == 0 and right == 0 then
+        table.insert(last_group.hl_groups, hl_group)
+      elseif left == 0 then
+        last_group.col = last_group.col + group.w
+        last_group.w = last_group.w - group.w
+        last_group.token = last_group.token:sub(group.w + 1)
+
+        group.hl_groups = vim.deepcopy(last_group.hl_groups)
+        table.insert(group.hl_groups, hl_group)
+        table.insert(groups, i, group)
+      elseif right == 0 then
+        last_group.w = last_group.w - group.w
+        last_group.token = last_group.token:sub(1, last_group.w)
+
+        group.hl_groups = vim.deepcopy(last_group.hl_groups)
+        table.insert(group.hl_groups, hl_group)
+        table.insert(groups, i + 1, group)
+      else
+        error("implement two sided stuff")
+      end
+
+      return groups;
+    end
+  end
+  assert(false)
+end
+
 local function inner_get_ts_syntax(out, line1, line2)
   local buf = vim.api.nvim_get_current_buf()
   local highlighter = vim.treesitter.highlighter
@@ -36,7 +84,9 @@ local function inner_get_ts_syntax(out, line1, line2)
     local root = tstree:root()
     local root_start_row, _, root_end_row, _ = root:range()
 
-    -- print(root_start_row, root_end_row)
+    if root_start_row > line2 or root_end_row < line1 then
+      return
+    end
 
     local query = buf_highlighter:get_query(tree:lang())
 
@@ -44,47 +94,53 @@ local function inner_get_ts_syntax(out, line1, line2)
       return
     end
 
-    local iter = query:query():iter_captures(root, buf_highlighter.bufnr, line1 - 1, line2)
+    local iter = query:query():iter_captures(root, buf_highlighter.bufnr, line1, line2)
 
-    for capture, node in iter do
+    for capture, node, metadata in iter do
       local hl = query.hl_cache[capture]
       if not hl then
         goto continue
       end
 
-      local group = query._query.captures[capture]
-      if not group then
+      local hl_group = query._query.captures[capture]
+      if not hl_group then
         goto continue
       end
 
-      local row, col, row_end, _ = node:range()
+      if metadata then
+        -- print(vim.inspect(metadata))
+      end
+
+      local row, col, row_end, col_end = node:range()
+      assert(row >= line1)
+      row = row - line1;
+      row_end = row_end - line1;
+
+      -- print(row, row_end)
 
       -- seems that if we get multi line token we cannot extarct futher tokens
       -- and we need to handle these tokens, but it is hard cuz if we thse multi line stokens can have other tokens inside
-      if row ~= row_end then
-        if row_end + 2 > line2 then
-          return
-        end
-        inner_get_ts_syntax(out, row_end + 2, line2)
-        return
+      if row ~= row_end then -- multi line strings idk what else
+        assert(false)
+        -- if row_end + 2 > line2 then
+          -- return
+        -- end
+        -- inner_get_ts_syntax(out, row_end + 2, line2)
+        -- return
       end
-
-      assert(row <= 65535)
-      assert(col <= 65535)
 
       local token = vim.treesitter.get_node_text(node, buf)
-      local key = bit.bor(bit.lshift(row, 16), col)
 
-      if not out.syntax[key] then
-        out.syntax[key] = {
-          token = token,
-          groups = {},
-        }
-      end
+      out.syntax[row + 1] = resolve_group(out.syntax[row + 1], {
+        col = col,
+        w = col_end - col,
+        token = token,
+      }, hl_group)
 
       out.cols = math.max(out.cols, col + #token)
-      table.insert(out.syntax[key].groups, group)
-        ::continue::
+      out.rows = math.max(out.rows, row + 1)
+
+      ::continue::
     end
   end, true)
 end
@@ -92,18 +148,19 @@ end
 local function get_ts_syntax(line1, line2)
   local out = {
     syntax = {},
+    rows = 0,
     cols = 0,
   }
-  inner_get_ts_syntax(out, line1, line2)
-  return out.syntax, out.cols
+  inner_get_ts_syntax(out, line1 - 1, line2)
+  return out.syntax, out.rows, out.cols
 end
 
 local function combine_fonts(groups)
   local font_type = 0
   -- update c abi so i could do smth like SN_FONT_TYPE_BOLD | SN_FOMT_TYPE_ITALIC
   -- then this dumb if else stuff
-  for _, val in ipairs(groups) do
-      local hl_info = vim.api.nvim_get_hl_by_name("@" .. val, true)
+  for i = 1, #groups do
+      local hl_info = vim.api.nvim_get_hl_by_name("@" .. groups[i], true)
       if hl_info.bold then
         if font_type == 2 then
           return 3
@@ -122,61 +179,59 @@ end
 local libsn = nil
 local sn_ctx = nil
 
+-- this is just ship f ts
 M.snip = function (opts)
-  if libsn == nil or sn_ctx == nil then
-    return
-  end
-  local elapsed = vim.loop.hrtime()
+  assert(libsn ~= nil and sn_ctx ~= nil)
 
+  local elapsed = vim.loop.hrtime()
   local treverse_timer = vim.loop.hrtime()
+
   local err
-  local syntax, cols = get_ts_syntax(opts.line1, opts.line2)
+  local syntax, rows, cols = get_ts_syntax(opts.line1, opts.line2)
   local treverse_time = vim.loop.hrtime()
 
   -- print("treverse:", (treverse_time - treverse_timer) / 1e6 .. "ms")
 
-  if next(syntax) == nil then
+  if rows == 0 then
     return
   end
 
   -- fill with normal bg color
   libsn.sn_set_fill(sn_ctx, 25, 23, 36)
 
-  err = libsn.sn_set_size(sn_ctx, opts.line2 - opts.line1 + 1, cols)
+  err = libsn.sn_set_size(sn_ctx, rows, cols)
   if err ~= 0 then
     libsn.sn_done(sn_ctx)
     error("sn_set_size: " .. ffi.string(libsn.sn_error_name(err)))
   end
 
-  -- this is unordered
   local draw_timer = vim.loop.hrtime()
-  for key, val in pairs(syntax) do
-    local row = bit.rshift(key, 16)
-    local col = bit.band(key, 0xFFFF)
-    local hl_info = vim.api.nvim_get_hl_by_name("@" .. val.groups[#val.groups], true)
+  for row, line in pairs(syntax) do
+    for i = 1, #line do
+      local val = line[i]
+      local hl_info = vim.api.nvim_get_hl_by_name("@" .. val.hl_groups[#val.hl_groups], true)
 
-    -- print(row, col, val.token)
+      libsn.sn_set_font(sn_ctx, combine_fonts(val.hl_groups))
 
-    libsn.sn_set_font(sn_ctx, combine_fonts(val.groups))
+      if hl_info.foreground then
+        local r = bit.band(bit.rshift(hl_info.foreground, 16), 0xFF)
+        local g = bit.band(bit.rshift(hl_info.foreground, 8), 0xFF)
+        local b = bit.band(hl_info.foreground, 0xFF)
 
-    if hl_info.foreground then
-      local r = bit.band(bit.rshift(hl_info.foreground, 16), 0xFF)
-      local g = bit.band(bit.rshift(hl_info.foreground, 8), 0xFF)
-      local b = bit.band(hl_info.foreground, 0xFF)
+        libsn.sn_set_color(sn_ctx, r, g, b)
+      else
+        libsn.sn_set_color(sn_ctx, 0, 255, 255) -- use Normal hi
+      end
 
-      libsn.sn_set_color(sn_ctx, r, g, b)
-    else
-      libsn.sn_set_color(sn_ctx, 0, 255, 255) -- use Normal hi
-    end
-
-    err = libsn.sn_draw_text(sn_ctx, row - opts.line1 + 1, col, val.token)
-    if err ~= 0 then
-      libsn.sn_done(sn_ctx)
-      error("sn_draw_text: " .. ffi.string(libsn.sn_error_name(err)))
+      err = libsn.sn_draw_text(sn_ctx, row - 1, val.col, val.token)
+      if err ~= 0 then
+        libsn.sn_done(sn_ctx)
+        error("sn_draw_text: " .. ffi.string(libsn.sn_error_name(err)))
+      end
     end
   end
-  local draw_time = vim.loop.hrtime()
 
+  local draw_time = vim.loop.hrtime()
   -- print("draw:", (draw_time - draw_timer) / 1e6 .. "ms")
 
   local output_timer = vim.loop.hrtime()

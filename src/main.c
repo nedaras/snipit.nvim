@@ -11,7 +11,6 @@
 
 #define SN_API extern
 
-// generating them images is kinda sl
 enum sn_font_type_enum : uint8_t {
   SN_FONT_TYPE_REGULAR,
   SN_FONT_TYPE_BOLD,
@@ -71,7 +70,7 @@ SN_API sn_ctx sn_init() {
     goto err;
   }
 
-  out->bitmap.width = 0;
+  out->bitmap.width = 0; // tst
   out->bitmap.height = 0;
   out->bitmap.buffer = NULL;
 
@@ -237,7 +236,7 @@ sn_error sn_render_codepoint(sn_ctx ctx, int32_t off_x, int32_t off_y, uint32_t 
     int32_t bearing_x = glyph->metrics.horiBearingX >> 6;
     int32_t bearing_y = glyph->metrics.horiBearingY >> 6;
 
-    assert(bearing_y <= SN_FONT_SIZE); // it it true?
+    assert(bearing_y <= SN_FONT_SIZE);
 
     // we need to fix these negative bearings
 
