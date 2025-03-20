@@ -20,51 +20,73 @@ M.options = {
 }
 
 -- for future if like empty string "   " or already has that group remove it
--- make this code cleaner perhaps
--- todo: handle priority
+-- todo: handle priority and dont add same hl_styles
 local function resolve_group(groups, group, hl_group)
-  if groups == nil then
-    group.hl_groups = { hl_group };
+  if not groups then
+    group.hl_groups = { hl_group }
     return { group }
   end
 
   for i = #groups, 1, -1 do
-    local last_group = groups[i]
-    if group.col >= last_group.col + last_group.w then
-      group.hl_groups = { hl_group };
-      table.insert(groups, group)
-      return groups;
+    local curr_group = groups[i]
+    local col = groups[i].col
+    local w = #groups[i].token
+
+    local left = group.col - col
+    local right = w - left - #group.token
+
+    if left > 0 and right < 0 then
+      group.hl_groups = { hl_group }
+      table.insert(groups, i + 1, group)
+
+      return groups
     end
 
-    if group.col >= last_group.col and last_group.col + last_group.w >= group.col + group.w then
-      local left = group.col - last_group.col
-      local right = last_group.w - left - group.w
+    if left == 0 and right == 0 then
+      table.insert(groups[i].hl_groups, hl_group)
+      return groups
+    end
 
-      if left == 0 and right == 0 then
-        table.insert(last_group.hl_groups, hl_group)
-      elseif left == 0 then
-        last_group.col = last_group.col + group.w
-        last_group.w = last_group.w - group.w
-        last_group.token = last_group.token:sub(group.w + 1)
+    if left >= 0 and right >= 0 then
+      assert(w > left + right)
 
-        group.hl_groups = vim.deepcopy(last_group.hl_groups)
-        table.insert(group.hl_groups, hl_group)
-        table.insert(groups, i, group)
-      elseif right == 0 then
-        last_group.w = last_group.w - group.w
-        last_group.token = last_group.token:sub(1, last_group.w)
+      local ltoken = curr_group.token:sub(1, left)
+      local mtoken = curr_group.token:sub(left + 1, w - right)
+      local rtoken = curr_group.token:sub(w - right + 1)
 
-        group.hl_groups = vim.deepcopy(last_group.hl_groups)
-        table.insert(group.hl_groups, hl_group)
-        table.insert(groups, i + 1, group)
-      else
-        error("implement two sided stuff")
+      local flag = false
+      if #ltoken ~= 0 then
+        local lgroup = {
+          col = col,
+          token = ltoken,
+          hl_groups = vim.deepcopy(curr_group.hl_groups)
+        }
+        table.insert(groups, i, lgroup)
+        flag = true
       end
 
-      return groups;
+      if #rtoken ~= 0 then
+        local rgroup = {
+          col = col + left + #mtoken,
+          token = rtoken,
+          hl_groups = vim.deepcopy(curr_group.hl_groups)
+        }
+        table.insert(groups, i + 1 + (flag and 1 or 0), rgroup)
+        flag = true
+      end
+
+      table.insert(curr_group.hl_groups, hl_group)
+      curr_group.col = col + left
+      curr_group.token = mtoken
+
+      return groups
     end
   end
-  assert(false)
+
+  group.hl_groups = { hl_group }
+  table.insert(groups, 1, group)
+
+  return groups
 end
 
 local function inner_get_ts_syntax(out, line1, line2)
@@ -112,21 +134,15 @@ local function inner_get_ts_syntax(out, line1, line2)
       end
 
       local row, col, row_end, col_end = node:range()
-      assert(row >= line1)
-      row = row - line1;
-      row_end = row_end - line1;
-
-      -- print(row, row_end)
 
       -- seems that if we get multi line token we cannot extarct futher tokens
       -- and we need to handle these tokens, but it is hard cuz if we thse multi line stokens can have other tokens inside
       if row ~= row_end then -- multi line strings idk what else
-        assert(false)
-        -- if row_end + 2 > line2 then
-          -- return
-        -- end
-        -- inner_get_ts_syntax(out, row_end + 2, line2)
-        -- return
+        if row_end + 2 > line2 then
+          return
+        end
+        inner_get_ts_syntax(out, row_end + 1, line2)
+        return
       end
 
       local token = vim.treesitter.get_node_text(node, buf)
@@ -199,7 +215,7 @@ M.snip = function (opts)
   -- fill with normal bg color
   libsn.sn_set_fill(sn_ctx, 25, 23, 36)
 
-  err = libsn.sn_set_size(sn_ctx, rows, cols)
+  err = libsn.sn_set_size(sn_ctx, rows - opts.line1 + 1, cols)
   if err ~= 0 then
     libsn.sn_done(sn_ctx)
     error("sn_set_size: " .. ffi.string(libsn.sn_error_name(err)))
@@ -223,7 +239,7 @@ M.snip = function (opts)
         libsn.sn_set_color(sn_ctx, 0, 255, 255) -- use Normal hi
       end
 
-      err = libsn.sn_draw_text(sn_ctx, row - 1, val.col, val.token)
+      err = libsn.sn_draw_text(sn_ctx, row - opts.line1, val.col, val.token)
       if err ~= 0 then
         libsn.sn_done(sn_ctx)
         error("sn_draw_text: " .. ffi.string(libsn.sn_error_name(err)))
