@@ -8,16 +8,16 @@ You can install `snipit.nvim` with your favorite package manager.
 
 **Lazy.nvim**
 ```lua
-{ 'mistricky/codesnap.nvim' },
+{ 'nedaras/snipit.nvim' },
 ```
 **Packer**
 ```lua
-use { 'mistricky/codesnap.nvim' }
+use { 'nedaras/snipit.nvim' }
 ```
 
 **Vim-Plug**
 ```lua
-Plug 'mistricky/codesnap.nvim'
+Plug 'nedaras/snipit.nvim'
 ```
 
 ## Usage
