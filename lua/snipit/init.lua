@@ -208,8 +208,9 @@ end
 
 local function get_foreground(groups)
   for i = #groups, 1, -1 do
-    if groups[i].foreground then
-      return groups[i].foreground
+    local hl_info = vim.api.nvim_get_hl_by_name("@" .. groups[i], true)
+    if hl_info.foreground then
+      return hl_info.foreground
     end
   end
 
@@ -257,8 +258,7 @@ M.snip = function (opts)
   for row, line in pairs(syntax) do
     for i = 1, #line do
       local val = line[i]
-      local foreground = get_foreground(val.hl_groups)
-      print(foreground)
+      local foreground = get_foreground(val.hl_groups) or normal.foreground
 
       local r = bit.band(bit.rshift(foreground, 16), 0xFF)
       local g = bit.band(bit.rshift(foreground, 8), 0xFF)
