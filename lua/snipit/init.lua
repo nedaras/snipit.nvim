@@ -129,15 +129,29 @@ local function inner_get_ts_syntax(out, line1, line2)
         goto continue
       end
 
+      -- todo: idk use this
       if metadata then
         -- print(vim.inspect(metadata))
       end
 
       local row, col, row_end, col_end = node:range()
 
-      -- seems that if we get multi line token we cannot extarct futher tokens
-      -- and we need to handle these tokens, but it is hard cuz if we thse multi line stokens can have other tokens inside
       if row ~= row_end then -- multi line strings idk what else
+        local lines = vim.split(vim.treesitter.get_node_text(node, buf), '\n')
+
+        local line_start = math.max(1, line1 - row + 1);
+        local line_end = math.min(#lines, line2 - row)
+
+        for i = line_start, line_end, 1 do
+          out.syntax[row + i] = resolve_group(out.syntax[row + i], {
+            col = i == 1 and col or 0 ,
+            w = #lines[i],
+            token = lines[i],
+          }, hl_group)
+
+          out.cols = math.max(out.cols, col + #lines[i])
+        end
+
         if row_end + 2 > line2 then
           return
         end
@@ -154,7 +168,7 @@ local function inner_get_ts_syntax(out, line1, line2)
       }, hl_group)
 
       out.cols = math.max(out.cols, col + #token)
-      out.rows = math.max(out.rows, row + 1)
+      out.rows = math.max(out.rows, row + 1) -- this is the dumbest thing im doing here
 
       ::continue::
     end
