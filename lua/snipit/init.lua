@@ -206,6 +206,16 @@ local function combine_fonts(groups)
   return font_type
 end
 
+local function get_foreground(groups)
+  for i = #groups, 1, -1 do
+    if groups[i].foreground then
+      return groups[i].foreground
+    end
+  end
+
+  return nil
+end
+
 local libsn = nil
 local sn_ctx = nil
 
@@ -226,8 +236,16 @@ M.snip = function (opts)
     return
   end
 
-  -- fill with normal bg color
-  libsn.sn_set_fill(sn_ctx, 25, 23, 36)
+  local normal = vim.api.nvim_get_hl_by_name("Normal", true)
+  assert(normal.background ~= nil)
+  assert(normal.foreground ~= nil)
+
+  libsn.sn_set_fill(
+    sn_ctx,
+    bit.band(bit.rshift(normal.background, 16), 0xFF),
+    bit.band(bit.rshift(normal.background, 8), 0xFF),
+    bit.band(normal.background, 0xFF)
+  )
 
   err = libsn.sn_set_size(sn_ctx, rows - opts.line1 + 1, cols)
   if err ~= 0 then
@@ -239,21 +257,18 @@ M.snip = function (opts)
   for row, line in pairs(syntax) do
     for i = 1, #line do
       local val = line[i]
-      local hl_info = vim.api.nvim_get_hl_by_name("@" .. val.hl_groups[#val.hl_groups], true)
+      local foreground = get_foreground(val.hl_groups)
+      print(foreground)
+
+      local r = bit.band(bit.rshift(foreground, 16), 0xFF)
+      local g = bit.band(bit.rshift(foreground, 8), 0xFF)
+      local b = bit.band(foreground, 0xFF)
 
       libsn.sn_set_font(sn_ctx, combine_fonts(val.hl_groups))
-
-      if hl_info.foreground then
-        local r = bit.band(bit.rshift(hl_info.foreground, 16), 0xFF)
-        local g = bit.band(bit.rshift(hl_info.foreground, 8), 0xFF)
-        local b = bit.band(hl_info.foreground, 0xFF)
-
-        libsn.sn_set_color(sn_ctx, r, g, b)
-      else
-        libsn.sn_set_color(sn_ctx, 0, 255, 255) -- use Normal hi
-      end
+      libsn.sn_set_color(sn_ctx, r, g, b)
 
       err = libsn.sn_draw_text(sn_ctx, row - opts.line1, val.col, val.token)
+
       if err ~= 0 then
         libsn.sn_done(sn_ctx)
         error("sn_draw_text: " .. ffi.string(libsn.sn_error_name(err)))
