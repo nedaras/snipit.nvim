@@ -12,10 +12,10 @@ M.options = {
   save_file = "out.png",
   -- font_size = 32,
   fonts = {
-    regular = M.root .. "/fonts/UbuntuMono-R.ttf",
-    bold = M.root .. "/fonts/UbuntuMono-B.ttf",
-    italic = M.root .. "/fonts/UbuntuMono-RI.ttf",
-    bold_italic = M.root .. "/fonts/UbuntuMono-BI.ttf",
+    regular = M.root .. "/fonts/UbuntuMono-Regular.ttf",
+    bold = M.root .. "/fonts/UbuntuMono-Bold.ttf",
+    italic = M.root .. "/fonts/UbuntuMono-Italic.ttf",
+    bold_italic = M.root .. "/fonts/UbuntuMono-BoldItalic.ttf",
   },
 }
 
