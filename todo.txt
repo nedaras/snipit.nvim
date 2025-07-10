@@ -1,4 +1,5 @@
 * copy image to clipboard
+* harfbuzz
 * Colored emojis
 * default vim highlights
 * add zh fonts

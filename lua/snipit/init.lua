@@ -9,7 +9,7 @@ M.root = path.dirname(path.dirname(path.dirname(debug.getinfo(1, "S").source:sub
 M.has_setup = false
 
 M.options = {
-  save_file = "out.png",
+  save_file = nil,
   -- font_size = 32,
   fonts = {
     regular = M.root .. "/fonts/UbuntuMono-Regular.ttf",
@@ -311,11 +311,18 @@ M.snip = function (opts)
 
     libsn.sn_free_output(out)
   else
-    -- vim.fn.setreg('+', image)
+    -- get os (windows will be a bit diffrent)
+    -- get command 
+    -- execute
+    local pipe = io.popen("xclip -selection clipboard -t image/png -i", "w")
+    assert(pipe ~= nil)
+
+    pipe:write(image)
+    pipe:close()
     print("Copied to clipboard")
   end
 
-  print("took:", (vim.loop.hrtime() - elapsed) / 1e6 .. "ms")
+  -- print("took:", (vim.loop.hrtime() - elapsed) / 1e6 .. "ms")
 end
 
 local function resolve_lib_path(root)
