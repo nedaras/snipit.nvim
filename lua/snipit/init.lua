@@ -48,7 +48,7 @@ local function resolve_group(groups, group, hl_group)
     end
 
     if left >= 0 and right >= 0 then
-      assert(w > left + right)
+      assert(w >= left + right)
 
       local ltoken = curr_group.token:sub(1, left)
       local mtoken = curr_group.token:sub(left + 1, w - right)
