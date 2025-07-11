@@ -220,6 +220,26 @@ end
 local libsn = nil
 local sn_ctx = nil
 
+---@return string, "pbcopy" | "powershell" | "xclip" | "wl-copy" | nil
+local function resolve_clipboard()
+  if jit.os == "OSX" then
+    return "macos", "pbcopy"
+  elseif  jit.os == "Windows" then
+    return "windows", "powershell"
+  else
+    local session = os.getenv("XDG_SESSION_TYPE")
+    local os = string.lower(jit.os)
+
+    if session == "x11" then
+      return os, "xclip"
+    elseif session == "wayland" then
+      return os, "wl-copy"
+    else
+      return os, nil
+    end
+  end
+end
+
 -- this is just ship f ts
 M.snip = function (opts)
   assert(libsn ~= nil and sn_ctx ~= nil)
@@ -311,14 +331,45 @@ M.snip = function (opts)
 
     libsn.sn_free_output(out)
   else
-    -- get os (windows will be a bit diffrent)
-    -- get command 
-    -- execute
-    local pipe = io.popen("xclip -selection clipboard -t image/png -i", "w")
-    assert(pipe ~= nil)
+    local _, cmd = resolve_clipboard()
+    if cmd == nil then
+      error("resolve_clipboard: unknown or unsupported session")
+    end
+
+    if not vim.fn.executable(cmd) then
+      error("resolve_clipboard: '" .. cmd .. "' not found")
+    end
+
+    local pipe
+    if cmd == "xclip" then
+      pipe, err = io.popen("xclip -selection clipboard -t image/png -i", "w")
+    elseif cmd == "wl-copy" then
+      assert(false, "not implemented")
+      -- pipe, err = io.popen("wl-copy --type image/png", "w")
+    elseif cmd == "pbcopy" then
+      pipe, err = io.popen("pbcopy", "w")
+    elseif cmd == "powershell" then
+      -- some chatgpt code no idea if its correct
+      -- local ps_cmd = [[
+        -- Add-Type -AssemblyName System.Windows.Forms;
+        -- Add-Type -AssemblyName System.Drawing;
+        -- $bytes = [Console]::OpenStandardInput().ReadToEnd();
+        -- $stream = New-Object System.IO.MemoryStream(, $bytes);
+        -- $image = [System.Drawing.Image]::FromStream($stream);
+        -- [System.Windows.Forms.Clipboard]::SetImage($image);
+      -- ]]
+      assert(false, "not implemented")
+    else
+      assert(false)
+    end
+
+    if pipe == nil then
+      error("open: " .. tostring(err))
+    end
 
     pipe:write(image)
     pipe:close()
+
     print("Copied to clipboard")
   end
 
@@ -334,7 +385,7 @@ local function resolve_lib_path(root)
   end
 
   local resolve_os = function ()
-    if jit.os == "MacOS" then
+    if jit.os == "OSX" then
       return "macos", "dylib"
     elseif jit.os == "Windows" then
       return "windows", "dll"
@@ -349,7 +400,7 @@ local function resolve_lib_path(root)
 end
 
 M.setup = function ()
-  libsn = ffi.load(resolve_lib_path(M.root)) -- print that this platform is not supported by default, but they can compile it
+  libsn = ffi.load(resolve_lib_path(M.root)) -- todo: print that this platform is not supported by default, but they can compile it
   assert(libsn ~= nil)
 
   -- :// we need to fix multi line strings
